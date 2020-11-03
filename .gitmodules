@@ -1,0 +1,3 @@
+[submodule "submodules/xmlReader"]
+	path = submodules/xmlReader
+	url = https://github.com/BenjaminRenz/submod_xmlReader
