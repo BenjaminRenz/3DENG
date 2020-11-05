@@ -13,6 +13,7 @@
 				<Option compiler="gcc" />
 				<Compiler>
 					<Add option="-g" />
+					<Add option="-DDEBUG=1" />
 				</Compiler>
 			</Target>
 			<Target title="Release">
@@ -22,6 +23,7 @@
 				<Option compiler="gcc" />
 				<Compiler>
 					<Add option="-O2" />
+					<Add option="-DDEBUG=0" />
 				</Compiler>
 				<Linker>
 					<Add option="-s" />
@@ -31,6 +33,19 @@
 		<Compiler>
 			<Add option="-Wall" />
 		</Compiler>
+		<Unit filename="main.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="res/kegel_ohne_camera.dae" />
+		<Unit filename="submodules/xmlReader/debug.h" />
+		<Unit filename="submodules/xmlReader/stringutils.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="submodules/xmlReader/stringutils.h" />
+		<Unit filename="submodules/xmlReader/xmlReader.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="submodules/xmlReader/xmlReader.h" />
 		<Extensions>
 			<lib_finder disable_auto="1" />
 		</Extensions>
