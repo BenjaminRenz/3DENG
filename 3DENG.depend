@@ -1,5 +1,5 @@
 # depslib dependency file v1.0
-1604606849 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
+1604607574 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
 	<stdio.h>
 	"submodules/xmlReader/debug.h"
 	"submodules/xmlReader/xmlReader.h"

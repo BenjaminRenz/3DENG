@@ -46,6 +46,7 @@
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="submodules/xmlReader/xmlReader.h" />
+		<Unit filename="submodules/xmlReader/xmlReader_matchHelper.h" />
 		<Extensions>
 			<lib_finder disable_auto="1" />
 		</Extensions>
