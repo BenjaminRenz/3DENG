@@ -9,7 +9,7 @@
 	<stdio.h>
 	<xmlReader/stringutils.h>
 
-1604606048 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.c
+1605040188 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.c
 	"stringutils.h"
 	"xmlReader.h"
 	<stdlib.h>
@@ -17,7 +17,7 @@
 	<math.h>
 	<debug.h>
 
-1604601128 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.h
+1604867321 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.h
 	<stdarg.h>
 	<stddef.h>
 	<stdint.h>
