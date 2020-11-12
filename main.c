@@ -16,10 +16,10 @@ int main(int argc, char** argv){
     struct xmlTreeElement* xmlMeshElementP=getFirstSubelementWith_freeArg2345(xmlGeoElementP,stringToUTF32Dynlist("mesh"),NULL,NULL,NULL,0);
 
     //Get Triangles
-    printXMLsubelements(xmlMeshElementP);
+    //printXMLsubelements(xmlMeshElementP);
 
     struct xmlTreeElement* xmlTrianglesP=getFirstSubelementWith_freeArg2345(xmlMeshElementP,stringToUTF32Dynlist("triangles"),NULL,NULL,NULL,0);
-     printXMLsubelements(xmlTrianglesP);
+    //printXMLsubelements(xmlTrianglesP);
     struct DynamicList* TrianglesCountString=getValueFromKeyName_freeArg2(xmlTrianglesP->attributes,stringToUTF32Dynlist("count"));
     struct DynamicList* TrianglesCount=utf32dynlistToInts_freeArg1(createCharMatchList(2,' ',' '),TrianglesCountString);
     dprintf(DBGT_INFO,"Model has %d triangles",((int64_t*)TrianglesCount->items)[0]);
