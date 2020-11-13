@@ -6,11 +6,13 @@
 
 int main(int argc, char** argv){
     dprintf(DBGT_INFO,"%d,%d,%d,%d",sizeof(uint32_t),sizeof(void*),sizeof(void**),sizeof(unsigned int));
-    struct DynamicList* meshID=stringToUTF32Dynlist("Cylinder-mesh");
+    //struct DynamicList* meshID=stringToUTF32Dynlist("Cylinder-mesh");
 
     FILE* cylinderDaeFileP=fopen("./res/kegel_ohne_camera.dae","rb");
     struct xmlTreeElement* xmlDaeRootP=0;
     readXML(cylinderDaeFileP,&xmlDaeRootP);
+    printXMLsubelements(xmlDaeRootP);
+
     /*struct xmlTreeElement* xmlColladaElementP=getNthSubelement(xmlDaeRootP,0);
     struct xmlTreeElement* xmlLibGeoElementP=getFirstSubelementWith_freeArg2345(xmlColladaElementP,stringToUTF32Dynlist("library_geometries"),NULL,NULL,NULL,0);
     struct xmlTreeElement* xmlGeoElementP=getFirstSubelementWith_freeArg2345(xmlLibGeoElementP,stringToUTF32Dynlist("geometry"),stringToUTF32Dynlist("id"),DlDuplicate(meshID),NULL,0); //does  not work?

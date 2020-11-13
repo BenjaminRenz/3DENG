@@ -31,6 +31,10 @@
 			</Target>
 		</Build>
 		<Compiler>
+			<Add option="-Wshadow" />
+			<Add option="-Wredundant-decls" />
+			<Add option="-Wcast-align" />
+			<Add option="-Wextra" />
 			<Add option="-Wall" />
 		</Compiler>
 		<Unit filename="main.c">

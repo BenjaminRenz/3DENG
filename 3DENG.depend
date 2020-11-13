@@ -1,15 +1,15 @@
 # depslib dependency file v1.0
-1605291508 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
+1605295897 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
 	<stdio.h>
 	"submodules/xmlReader/debug.h"
 	"submodules/xmlReader/xmlReader.h"
 	"submodules/xmlReader/stringutils.h"
 
-1605198770 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader.h
+1605295207 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader.h
 	<stdio.h>
 	<xmlReader/stringutils.h>
 
-1605294601 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.c
+1605301275 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.c
 	"stringutils.h"
 	"xmlReader.h"
 	<stdlib.h>
@@ -17,12 +17,12 @@
 	<math.h>
 	<debug.h>
 
-1605294144 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.h
+1605295207 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.h
 	<stdarg.h>
 	<stddef.h>
 	<stdint.h>
 
-1605294917 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader.c
+1605302667 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader.c
 	<stdio.h>
 	<stdlib.h>
 	<stdarg.h>
