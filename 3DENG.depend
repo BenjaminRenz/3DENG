@@ -9,7 +9,7 @@
 	<stdio.h>
 	<xmlReader/stringutils.h>
 
-1605301275 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.c
+1605408479 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.c
 	"stringutils.h"
 	"xmlReader.h"
 	<stdlib.h>
@@ -17,23 +17,23 @@
 	<math.h>
 	<debug.h>
 
-1605295207 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.h
+1605376530 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.h
 	<stdarg.h>
 	<stddef.h>
 	<stdint.h>
 
-1605302667 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader.c
+1605411156 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader.c
 	<stdio.h>
 	<stdlib.h>
 	<stdarg.h>
 	<stdint.h>
 	<string.h>
-	"xmlReader.h"
-	"xmlReader_matchHelper.h"
-	"debug.h"
+	"xmlReader/xmlReader.h"
+	"xmlReader/xmlReader_matchHelper.h"
+	"xmlReader/debug.h"
 
 1604418712 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\debug.h
 	<stdio.h>
 
-1605291854 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader_matchhelper.h
+1605375689 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader_matchhelper.h
 

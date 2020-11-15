@@ -36,6 +36,7 @@
 			<Add option="-Wcast-align" />
 			<Add option="-Wextra" />
 			<Add option="-Wall" />
+			<Add directory="submodules" />
 		</Compiler>
 		<Unit filename="main.c">
 			<Option compilerVar="CC" />
