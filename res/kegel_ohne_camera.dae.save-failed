@@ -10,6 +10,7 @@
     <unit name="meter" meter="1"/>
     <up_axis>Z_UP</up_axis>
   </asset>
+  <?a3 content?>
   <library_images/>
   <library_geometries>
     <geometry id="Cylinder-mesh" name="Cylinder">
