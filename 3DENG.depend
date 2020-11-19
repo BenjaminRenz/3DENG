@@ -5,9 +5,13 @@
 	"submodules/xmlReader/xmlReader.h"
 	"submodules/xmlReader/stringutils.h"
 
+1605726241 s/xmlReader/stringutils.h"
+
 1605580341 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader.h
 	<stdio.h>
 	<xmlReader/stringutils.h>
+
+1605580341 /stringutils.h>
 
 1605726295 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.c
 	"stringutils.h"
@@ -16,6 +20,8 @@
 	<string.h>
 	<math.h>
 	<debug.h>
+
+1605725052 
 
 1605725052 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.h
 	<stdarg.h>
@@ -32,8 +38,48 @@
 	"xmlReader/xmlReader_matchHelper.h"
 	"xmlReader/debug.h"
 
+1605725048 /debug.h"
+
 1604418712 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\debug.h
 	<stdio.h>
 
 1605632316 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader_matchhelper.h
+
+1605752689 source:/home/badmin/Desktop/gitprojects/3DENG/main.c
+	<stdio.h>
+	"submodules/xmlReader/debug.h"
+	"submodules/xmlReader/xmlReader.h"
+	"submodules/xmlReader/stringutils.h"
+
+1605224619 /home/badmin/Desktop/gitprojects/3DENG/submodules/xmlReader/debug.h
+	<stdio.h>
+
+1605752705 /home/badmin/Desktop/gitprojects/3DENG/submodules/xmlReader/xmlReader.h
+	<stdio.h>
+	<xmlReader/stringutils.h>
+
+1605754673 /home/badmin/Desktop/gitprojects/3DENG/submodules/xmlReader/stringutils.h
+	<stdarg.h>
+	<stddef.h>
+	<stdint.h>
+
+1605754654 source:/home/badmin/Desktop/gitprojects/3DENG/submodules/xmlReader/stringutils.c
+	"stringutils.h"
+	"xmlReader.h"
+	<stdlib.h>
+	<string.h>
+	<math.h>
+	<xmlReader/debug.h>
+
+1605754673 source:/home/badmin/Desktop/gitprojects/3DENG/submodules/xmlReader/xmlReader.c
+	<stdio.h>
+	<stdlib.h>
+	<stdarg.h>
+	<stdint.h>
+	<string.h>
+	"xmlReader/xmlReader.h"
+	"xmlReader/xmlReader_matchHelper.h"
+	"xmlReader/debug.h"
+
+1605752705 /home/badmin/Desktop/gitprojects/3DENG/submodules/xmlReader/xmlReader_matchHelper.h
 
