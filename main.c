@@ -34,15 +34,14 @@ int main(int argc, char** argv){
                                                                                                 stringToUTF32Dynlist("id"),
                                                                                                 DlCombine_freeArg3(sizeof(uint32_t),meshID,stringToUTF32Dynlist("-normals")),
                                                                                                 NULL,0);
-    DlDelete(stringToUTF32Dynlist("testtest"));
     struct xmlTreeElement* xmlNormalsFloatP=getFirstSubelementWith_freeArg2345(xmlNormalsSourceP,stringToUTF32Dynlist("float_array"),
                                                                                                 stringToUTF32Dynlist("id"),
                                                                                                 DlCombine_freeArg3(sizeof(uint32_t),meshID,stringToUTF32Dynlist("-normals-array")),
                                                                                                 NULL,0);
     struct DynamicList* NormalsCountString=getValueFromKeyName_freeArg2(xmlNormalsFloatP->attributes,stringToUTF32Dynlist("count"));
     printUTF32Dynlist(NormalsCountString);
-    uint32_t NormalsCount=utf32dynlistToInts64_freeArg1(createCharMatchList(2,' ',' '),NormalsCountString);
-    dprintf(DBGT_INFO,"Model has count %d normal coordinates",NormalsCount);
+    struct DynamicList* NormalsCount=utf32dynlistToInts64_freeArg1(createCharMatchList(2,' ',' '),NormalsCountString);
+    dprintf(DBGT_INFO,"Model has count %d normal coordinates",((int64_t*)NormalsCount->items)[0]);
     struct xmlTreeElement* xmlNormalsFloatContentP=getNthSubelementOrMisc(xmlNormalsFloatP,0);
     struct DynamicList* NormalsDlP=utf32dynlistToFloats_freeArg123(createCharMatchList(4,' ',' ','\t','\t'),createCharMatchList(4,'e','e','E','E'),createCharMatchList(2,'.','.'),xmlNormalsFloatContentP->content);
     dprintf(DBGT_INFO,"Model has %d normal coordinates",NormalsDlP->itemcnt);
@@ -50,13 +49,13 @@ int main(int argc, char** argv){
     //Get Positions
     struct xmlTreeElement* xmlPositionsSourceP=getFirstSubelementWith_freeArg2345(xmlMeshElementP,stringToUTF32Dynlist("source"),
                                                                      stringToUTF32Dynlist("id"),DlCombine_freeArg3(sizeof(uint32_t),meshID,stringToUTF32Dynlist("-positions")),NULL,0);
-    struct xmlTreeElement* xmlPositionsFloatP=getFirstSubelementWith_freeArg2345(xmlPositionsSourceP,stringToUTF32Dynlist("float_array"),
-                                                                    stringToUTF32Dynlist("id"),DlCombine_freeArg3(sizeof(uint32_t),meshID,stringToUTF32Dynlist("-normals-array")),NULL,0);
-    struct DynamicList* PositionsCountString=getValueFromKeyName_freeArg2(xmlPositionsFloatP->attributes,stringToUTF32Dynlist("count"));
-    uint32_t PositionsCount=utf32dynlistToInts64_freeArg1(PositionsCountString,createCharMatchList(2,' ',' '));
-    dprintf(DBGT_INFO,"Model has count %d position coordinates",PositionsCount);
-    if(xmlPositionsFloatP->content->type!=dynlisttype_utf32chars){dprintf(DBGT_ERROR,"Invalid content type");return 0;}
-    struct DynamicList* PositionsDlP=utf32dynlistToFloats_freeArg123(createCharMatchList(4,' ',' ','\t','\t'),createCharMatchList(4,'e','e','E','E'),createCharMatchList(2,'.','.'),xmlPositionsFloatP->content);
-    dprintf(DBGT_INFO,"Model has %d position coordinates",PositionsDlP->itemcnt);
 
+    struct xmlTreeElement* xmlPositionsFloatP=getFirstSubelementWith_freeArg2345(xmlPositionsSourceP,stringToUTF32Dynlist("float_array"),
+                                                                    stringToUTF32Dynlist("id"),DlCombine_freeArg3(sizeof(uint32_t),meshID,stringToUTF32Dynlist("-positions-array")),NULL,0);
+
+    struct DynamicList* PositionsCountString=getValueFromKeyName_freeArg2(xmlPositionsFloatP->attributes,stringToUTF32Dynlist("count"));
+    struct DynamicList* PositionsCount=utf32dynlistToInts64_freeArg1(createCharMatchList(2,' ',' '),PositionsCountString);
+    //if(xmlPositionsFloatP->content->type!=dynlisttype_utf32chars){dprintf(DBGT_ERROR,"Invalid content type");return 0;}
+    struct xmlTreeElement* xmlPositionsFloatContentP=getNthSubelementOrMisc(xmlPositionsFloatP,0);
+    struct DynamicList* PositionsDlP=utf32dynlistToFloats_freeArg123(createCharMatchList(4,' ',' ','\t','\t'),createCharMatchList(4,'e','e','E','E'),createCharMatchList(2,'.','.'),xmlPositionsFloatContentP->content);
 }
