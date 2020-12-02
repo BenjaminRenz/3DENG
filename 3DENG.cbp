@@ -38,6 +38,11 @@
 			<Add option="-Wall" />
 			<Add directory="submodules" />
 		</Compiler>
+		<Linker>
+			<Add library="submodules/glfw/libglfw3.a" />
+			<Add library="gdi32" />
+			<Add library="vulkan" />
+		</Linker>
 		<Unit filename="main.c">
 			<Option compilerVar="CC" />
 		</Unit>
