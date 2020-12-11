@@ -1,5 +1,5 @@
 # depslib dependency file v1.0
-1606931254 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
+1607720591 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
 	<stdio.h>
 	"vulkan/vulkan.h"
 	"submodules/glfw/glfw3.h"

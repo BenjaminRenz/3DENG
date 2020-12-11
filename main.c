@@ -69,45 +69,52 @@ int loadDaeObject(char* filePath,char* meshName,struct vulkanObj* outputVulkanOb
 
 }
 
-int main(int argc, char** argv){
-    glfwInit();
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-    GLFWwindow* mainWindowP = glfwCreateWindow(1920, 1080, "3DENG", NULL, NULL);
+struct VulkanRuntimeInfo{
+    GLFWwindow* mainWindowP;
+    VkInstance instance;
+    VkDevice device;
+    uint32_t graphics_queue_family_idx;
+    VkSwapchainKHR swapChain;
+    VkCommandPool commandPool;
+    VkCommandBuffer primaryCommandBuffer;
+};
 
+void eng_vulkan_create_instance(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     VkApplicationInfo AppInfo;
-    AppInfo.sType=VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    AppInfo.pNext=NULL;
-    AppInfo.apiVersion=VK_API_VERSION_1_1;
-    AppInfo.pApplicationName="Test Application";
-    AppInfo.applicationVersion=VK_MAKE_VERSION(1,0,0);
-    AppInfo.pEngineName="3DENG";
-    AppInfo.engineVersion=VK_MAKE_VERSION(1,0,0);
+    AppInfo.sType=              VK_STRUCTURE_TYPE_APPLICATION_INFO;
+    AppInfo.pNext=              NULL;
+    AppInfo.apiVersion=         VK_API_VERSION_1_1;
+    AppInfo.pApplicationName=   "Test Application";
+    AppInfo.applicationVersion= VK_MAKE_VERSION(1,0,0);
+    AppInfo.pEngineName=        "3DENG";
+    AppInfo.engineVersion=      VK_MAKE_VERSION(1,0,0);
 
 
-    VkInstanceCreateInfo CreateInfo;
-    CreateInfo.sType=VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    CreateInfo.pApplicationInfo=&AppInfo;
-    CreateInfo.pNext=NULL;
     uint32_t glfwExtensionsCount=0;
     const char** glfwExtensions=glfwGetRequiredInstanceExtensions(&glfwExtensionsCount);
     const char* validationLayers[1]={"VK_LAYER_KHRONOS_validation"};
-    CreateInfo.enabledExtensionCount=glfwExtensionsCount;
-    CreateInfo.ppEnabledExtensionNames=glfwExtensions;
-    CreateInfo.enabledLayerCount=0;
+
+    VkInstanceCreateInfo CreateInfo;
+    CreateInfo.sType=                   VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    CreateInfo.pApplicationInfo=        &AppInfo;
+    CreateInfo.pNext=                   NULL;
+    CreateInfo.enabledExtensionCount=   glfwExtensionsCount;
+    CreateInfo.ppEnabledExtensionNames= glfwExtensions;
+    CreateInfo.enabledLayerCount=       0;
     //TODO enable validation layers
 
     VkInstance instance;
-    if(vkCreateInstance(&CreateInfo,NULL,&instance)!=VK_SUCCESS){
+    if(vkCreateInstance(&CreateInfo,NULL,&(vkRuntimeInfoP->instance))!=VK_SUCCESS){
         dprintf(DBGT_ERROR,"Could not create vulkan instance");
         exit(1);
     }
+}
 
-    //Pick physical device
+void eng_vulkan_pick_device(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     uint32_t physicalDevicesCount=0;
-    vkEnumeratePhysicalDevices(instance,&physicalDevicesCount,NULL);
+    vkEnumeratePhysicalDevices(vkRuntimeInfoP->instance,&physicalDevicesCount,NULL);
     VkPhysicalDevice* physicalDevicesP=(VkPhysicalDevice*)malloc(physicalDevicesCount*sizeof(VkPhysicalDevice));
-    vkEnumeratePhysicalDevices(instance,&physicalDevicesCount,physicalDevicesP);
+    vkEnumeratePhysicalDevices(vkRuntimeInfoP->instance,&physicalDevicesCount,physicalDevicesP);
     uint32_t physicalDevicesIdx;
     for(physicalDevicesIdx=0;physicalDevicesIdx<physicalDevicesCount;physicalDevicesIdx++){
         VkPhysicalDeviceProperties deviceProperties;
@@ -116,45 +123,120 @@ int main(int argc, char** argv){
             break;
         }
     }
-    free(physicalDevicesP);
+    if(physicalDevicesCount==0||physicalDevicesIdx==physicalDevicesCount){
+        dprintf(DBGT_ERROR,"No supported GPU found in your System");
+        exit(1);
+    }
+
     //Print supported Queues
     uint32_t queueFamilyCount = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(physicalDevicesP[physicalDevicesIdx],&queueFamilyCount,NULL);
     dprintf(DBGT_INFO,"Found %d queueFamilys",queueFamilyCount);
-    VkQueueFamilyProperties* queueFamiliesP=(VkQueueFamilyProperties*)malloc(queueFamilyCount*sizeof(VkQueueFamilyProperties));
-    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevicesP[physicalDevicesIdx],&queueFamilyCount,queueFamiliesP);
-    for(uint32_t queueFamilyIdx=0;queueFamilyIdx<queueFamilyCount;queueFamilyIdx++){
+    VkQueueFamilyProperties* queueFamiliyPropP=(VkQueueFamilyProperties*)malloc(queueFamilyCount*sizeof(VkQueueFamilyProperties));
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevicesP[physicalDevicesIdx],&queueFamilyCount,queueFamiliyPropP);
+    uint32_t queueFamilyIdx;
+    for(queueFamilyIdx=0;queueFamilyIdx<queueFamilyCount;queueFamilyIdx++){
         dprintf(DBGT_INFO,"Found Queue with Count %d\n Properties:\nGRAP\t COMP\t TRANS\t SPARSE\t PROT\n%d \t %d \t %d\t %d\t %d",
-                queueFamiliesP[queueFamilyIdx].queueCount,
-                (queueFamiliesP[queueFamilyIdx].queueFlags&VK_QUEUE_GRAPHICS_BIT         )/VK_QUEUE_GRAPHICS_BIT,
-                (queueFamiliesP[queueFamilyIdx].queueFlags&VK_QUEUE_COMPUTE_BIT          )/VK_QUEUE_COMPUTE_BIT,
-                (queueFamiliesP[queueFamilyIdx].queueFlags&VK_QUEUE_TRANSFER_BIT         )/VK_QUEUE_TRANSFER_BIT,
-                (queueFamiliesP[queueFamilyIdx].queueFlags&VK_QUEUE_SPARSE_BINDING_BIT   )/VK_QUEUE_SPARSE_BINDING_BIT,
-                (queueFamiliesP[queueFamilyIdx].queueFlags&VK_QUEUE_PROTECTED_BIT        )/VK_QUEUE_PROTECTED_BIT
+                queueFamiliyPropP[queueFamilyIdx].queueCount,
+                (queueFamiliyPropP[queueFamilyIdx].queueFlags&VK_QUEUE_GRAPHICS_BIT         )/VK_QUEUE_GRAPHICS_BIT,
+                (queueFamiliyPropP[queueFamilyIdx].queueFlags&VK_QUEUE_COMPUTE_BIT          )/VK_QUEUE_COMPUTE_BIT,
+                (queueFamiliyPropP[queueFamilyIdx].queueFlags&VK_QUEUE_TRANSFER_BIT         )/VK_QUEUE_TRANSFER_BIT,
+                (queueFamiliyPropP[queueFamilyIdx].queueFlags&VK_QUEUE_SPARSE_BINDING_BIT   )/VK_QUEUE_SPARSE_BINDING_BIT,
+                (queueFamiliyPropP[queueFamilyIdx].queueFlags&VK_QUEUE_PROTECTED_BIT        )/VK_QUEUE_PROTECTED_BIT
+        );
+        if((queueFamiliyPropP[queueFamilyIdx].queueFlags&(VK_QUEUE_GRAPHICS_BIT))&&(queueFamiliyPropP[queueFamilyIdx].queueFlags&VK_QUEUE_COMPUTE_BIT)){
+
+            break;
+        }
+    }
+    vkRuntimeInfoP->graphics_queue_family_idx=queueFamilyIdx;
+    for(uint32_t RemainingQueueFamilyIdx=queueFamilyIdx+1;RemainingQueueFamilyIdx<queueFamilyCount;RemainingQueueFamilyIdx++){
+        dprintf(DBGT_INFO,"Found Queue with Count %d\n Properties:\nGRAP\t COMP\t TRANS\t SPARSE\t PROT\n%d \t %d \t %d\t %d\t %d",
+         queueFamiliyPropP[RemainingQueueFamilyIdx].queueCount,
+        (queueFamiliyPropP[RemainingQueueFamilyIdx].queueFlags&VK_QUEUE_GRAPHICS_BIT         )/VK_QUEUE_GRAPHICS_BIT,
+        (queueFamiliyPropP[RemainingQueueFamilyIdx].queueFlags&VK_QUEUE_COMPUTE_BIT          )/VK_QUEUE_COMPUTE_BIT,
+        (queueFamiliyPropP[RemainingQueueFamilyIdx].queueFlags&VK_QUEUE_TRANSFER_BIT         )/VK_QUEUE_TRANSFER_BIT,
+        (queueFamiliyPropP[RemainingQueueFamilyIdx].queueFlags&VK_QUEUE_SPARSE_BINDING_BIT   )/VK_QUEUE_SPARSE_BINDING_BIT,
+        (queueFamiliyPropP[RemainingQueueFamilyIdx].queueFlags&VK_QUEUE_PROTECTED_BIT        )/VK_QUEUE_PROTECTED_BIT
         );
     }
-    free(queueFamiliesP);
+    if(queueFamilyIdx>=queueFamilyCount){
+        dprintf(DBGT_ERROR,"Your GPU does not support a combined Graphics and Compute Queue. Hint: This can be used to justify buying a new GPU...");
+        exit(1);
+    }
 
 
-
-    //Add Logical Device
-    VkDevice device;
-    VkDeviceQueueCreateInfo QueueCreateInfo;
-    QueueCreateInfo.sType=VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    QueueCreateInfo.queueCount=1;
-    exit(0);/*
-    QueueCreateInfo.queueFamilyIndex=
+    //Create logical device
     float queuePriority=1.0f;
-    QueueCreateInfo.pQueuePriorities=&queuePriority;
+
+    VkDeviceQueueCreateInfo QueueCreateInfo;
+    QueueCreateInfo.sType=              VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    QueueCreateInfo.queueCount=         1;
+    QueueCreateInfo.queueFamilyIndex=   queueFamilyIdx;
+    QueueCreateInfo.pQueuePriorities=   &queuePriority;
+    QueueCreateInfo.pNext           =   NULL;
 
     VkDeviceCreateInfo DevCreateInfo;
-    DevCreateInfo.sType=VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    DevCreateInfo.que
-    vkCreateDevice(physicalDevicesIdx,,NULL,&device);
-    */
+    DevCreateInfo.sType=                VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    DevCreateInfo.pQueueCreateInfos=    &QueueCreateInfo;
+    DevCreateInfo.queueCreateInfoCount= 1;
+    DevCreateInfo.pNext=                NULL;
+    DevCreateInfo.enabledExtensionCount=0;
+    DevCreateInfo.ppEnabledExtensionNames=NULL;
+    DevCreateInfo.pEnabledFeatures=     NULL;
 
+    if(vkCreateDevice(physicalDevicesP[physicalDevicesIdx],&DevCreateInfo,NULL,&(vkRuntimeInfoP->device))){
+        dprintf(DBGT_ERROR,"Could not create Vulkan logical device");
+        exit(1);
+    }
+    free(queueFamiliyPropP);
+    free(physicalDevicesP);
+
+}
+
+void eng_vulkan_create_command_buffers(struct VulkanRuntimeInfo* vkRuntimeInfoP){
+    //Create Pool
+    VkCommandPoolCreateInfo CommandPoolCreateInfo;
+    CommandPoolCreateInfo.sType=VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    CommandPoolCreateInfo.pNext=NULL;
+    CommandPoolCreateInfo.flags=0;
+    CommandPoolCreateInfo.queueFamilyIndex=vkRuntimeInfoP->graphics_queue_family_idx;
+    if(VK_SUCCESS!=vkCreateCommandPool(vkRuntimeInfoP->device,&CommandPoolCreateInfo,NULL,&(vkRuntimeInfoP->commandPool))){
+        dprintf(DBGT_ERROR,"Could not create Command Pool");
+    }
+
+    //Create Buffer
+    VkCommandBufferAllocateInfo CommandBufferCreateInfo;
+    CommandBufferCreateInfo.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    CommandBufferCreateInfo.pNext=NULL;
+    CommandBufferCreateInfo.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    CommandBufferCreateInfo.commandPool=vkRuntimeInfoP->commandPool;
+    CommandBufferCreateInfo.commandBufferCount=1;
+    if(VK_SUCCESS!=vkAllocateCommandBuffers(vkRuntimeInfoP->device,&CommandBufferCreateInfo,&(vkRuntimeInfoP->primaryCommandBuffer)));
+}
+
+void cleanup(struct VulkanRuntimeInfo* vkRuntimeInfoP){
+    //vkDestroySwapchainKHR(vkRuntimeInfoP->device, vkRuntimeInfoP->swapChain, NULL);
+    /*vkDestroyDevice();
+    vkDestroySurfaceKHR();
+    vkDestroyInstance();*/
+    glfwDestroyWindow(vkRuntimeInfoP->mainWindowP);
+    glfwTerminate();
+}
+
+int main(int argc, char** argv){
+    glfwInit();
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    GLFWwindow* mainWindowP = glfwCreateWindow(1920, 1080, "3DENG", NULL, NULL);
+
+    struct VulkanRuntimeInfo engVkRuntimeInfo;
+    eng_vulkan_create_instance(&engVkRuntimeInfo);
+    eng_vulkan_pick_device(&engVkRuntimeInfo);
+    //eng_vulkan_add_device(&engVkRuntimeInfo);
     while (!glfwWindowShouldClose(mainWindowP)) {
         glfwPollEvents();
     }
+
 
 }
