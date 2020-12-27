@@ -79,6 +79,11 @@ struct VulkanRuntimeInfo{
     VkCommandBuffer primaryCommandBuffer;
 };
 
+char* required_vk_layers[]={
+    "VK_LAYER_KHRONOS_validation",
+
+};
+
 void eng_vulkan_create_instance(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     VkApplicationInfo AppInfo;
     AppInfo.sType=              VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -128,7 +133,11 @@ void eng_vulkan_pick_device(struct VulkanRuntimeInfo* vkRuntimeInfoP){
         exit(1);
     }
 
-    //Print supported Queues
+    //Check supported Extensions
+
+
+
+    //Check supported Queues
     uint32_t queueFamilyCount = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(physicalDevicesP[physicalDevicesIdx],&queueFamilyCount,NULL);
     dprintf(DBGT_INFO,"Found %d queueFamilys",queueFamilyCount);
@@ -164,7 +173,6 @@ void eng_vulkan_pick_device(struct VulkanRuntimeInfo* vkRuntimeInfoP){
         dprintf(DBGT_ERROR,"Your GPU does not support a combined Graphics and Compute Queue. Hint: This can be used to justify buying a new GPU...");
         exit(1);
     }
-
 
     //Create logical device
     float queuePriority=1.0f;
@@ -234,9 +242,8 @@ int main(int argc, char** argv){
     eng_vulkan_create_instance(&engVkRuntimeInfo);
     eng_vulkan_pick_device(&engVkRuntimeInfo);
     //eng_vulkan_add_device(&engVkRuntimeInfo);
+    dprintf(DBGT_INFO,"Got inside main loop\n");
     while (!glfwWindowShouldClose(mainWindowP)) {
         glfwPollEvents();
     }
-
-
 }
