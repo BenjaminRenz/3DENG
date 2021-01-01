@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Debug>
+    <ApplicationName>Test Application (debug build)</ApplicationName>
+    <ApplicationVersion>1.0.0</ApplicationVersion>
+    <EngineName>3DENG</EngineName>
+    <EngineVersion>1.0.0</EngineVersion>
+    <RequiredInterfaceExtensions>
+    </RequiredInterfaceExtensions>
+    <RequiredInterfaceLayers>
+        <Layer name="VK_LAYER_KHRONOS_validation" minversion="1.0.0"/>
+    </RequiredInterfaceLayers>
+    <RequiredDeviceExtensions>
+        <Extension name="VK_KHR_swapchain" minversion="1.0.0"/>
+    </RequiredDeviceExtensions>
+    <RequiredDeviceLayers>
+    </RequiredDeviceLayers>
+</Debug>
+<Release>
+    <ApplicationName>Test Application (release build)</ApplicationName>
+    <ApplicationVersion>1.0.0</ApplicationVersion>
+    <EngineName>3DENG</EngineName>
+    <EngineVersion>1.0.0</EngineVersion>
+    <RequiredInterfaceExtensions>
+    </RequiredInterfaceExtensions>
+    <RequiredInterfaceLayers>
+        <Layer name="VK_LAYER_KHRONOS_validation" minversion="1.0.0"/>
+    </RequiredInterfaceLayers>
+    <RequiredDeviceExtensions>
+        <Extension name="VK_KHR_swapchain" minversion="1.0.0"/>
+    </RequiredDeviceExtensions>
+    <RequiredDeviceLayers>
+    </RequiredDeviceLayers>
+</Release>
