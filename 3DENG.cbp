@@ -37,16 +37,20 @@
 			<Add option="-Wextra" />
 			<Add option="-Wall" />
 			<Add directory="submodules" />
+			<Add directory="C:/VulkanSDK/1.2.162.0/Include/" />
 		</Compiler>
 		<Linker>
 			<Add library="submodules/glfw/libglfw3.a" />
 			<Add library="gdi32" />
-			<Add library="vulkan" />
+			<Add library="vulkan-1" />
+			<Add library="shaderc" />
+			<Add directory="C:/VulkanSDK/1.2.162.0/Lib" />
 		</Linker>
 		<Unit filename="main.c">
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="res/kegel_ohne_camera.dae" />
+		<Unit filename="res/vk_setup.xml" />
 		<Unit filename="submodules/xmlReader/debug.h" />
 		<Unit filename="submodules/xmlReader/stringutils.c">
 			<Option compilerVar="CC" />

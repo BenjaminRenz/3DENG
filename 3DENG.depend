@@ -1,7 +1,10 @@
 # depslib dependency file v1.0
-1607724687 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
+1609962321 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
 	<stdio.h>
+	<stdlib.h>
+	<string.h>
 	"vulkan/vulkan.h"
+	"shaderc/shaderc.h"
 	"submodules/glfw/glfw3.h"
 	"submodules/xmlReader/debug.h"
 	"submodules/xmlReader/xmlReader.h"
@@ -15,27 +18,29 @@
 
 1605580341 /stringutils.h>
 
-1605827099 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.c
+1609961166 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.c
 	"stringutils.h"
 	"xmlReader.h"
 	<stdlib.h>
 	<string.h>
 	<math.h>
 	<xmlReader/debug.h>
+	<xmlReader/stringutils.h>
 
 1605725052 
 
-1609529033 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.h
+1609698114 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.h
 	<stdarg.h>
 	<stddef.h>
 	<stdint.h>
 
-1605825916 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader.c
+1609804290 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader.c
 	<stdio.h>
 	<stdlib.h>
 	<stdarg.h>
 	<stdint.h>
 	<string.h>
+	<setjmp.h>
 	"xmlReader/xmlReader.h"
 	"xmlReader/xmlReader_matchHelper.h"
 	"xmlReader/debug.h"
@@ -45,7 +50,7 @@
 1604418712 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\debug.h
 	<stdio.h>
 
-1605632316 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader_matchhelper.h
+1609698122 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader_matchhelper.h
 
 1605752689 source:/home/badmin/Desktop/gitprojects/3DENG/main.c
 	<stdio.h>
@@ -107,4 +112,81 @@
 	<GL/gl.h>
 	<GL/glext.h>
 	<GL/glu.h>
+
+1607724694 c:\vulkansdk\1.2.162.0\include\\vulkan\vulkan.h
+	"vk_platform.h"
+	"vulkan_core.h"
+	"vulkan_android.h"
+	<zircon/types.h>
+	"vulkan_fuchsia.h"
+	"vulkan_ios.h"
+	"vulkan_macos.h"
+	"vulkan_metal.h"
+	"vulkan_vi.h"
+	<wayland-client.h>
+	"vulkan_wayland.h"
+	<windows.h>
+	"vulkan_win32.h"
+	<xcb/xcb.h>
+	"vulkan_xcb.h"
+	<X11/Xlib.h>
+	"vulkan_xlib.h"
+	<directfb.h>
+	"vulkan_directfb.h"
+	<X11/Xlib.h>
+	<X11/extensions/Xrandr.h>
+	"vulkan_xlib_xrandr.h"
+	<ggp_c/vulkan_types.h>
+	"vulkan_ggp.h"
+	"vulkan_beta.h"
+
+1607724694 c:\vulkansdk\1.2.162.0\include\\vulkan\vk_platform.h
+	<stddef.h>
+	<stdint.h>
+
+1607724694 c:\vulkansdk\1.2.162.0\include\\vulkan\vulkan_core.h
+	"vk_platform.h"
+
+1607724694 c:\vulkansdk\1.2.162.0\include\\vulkan\vulkan_android.h
+
+1607724694 c:\vulkansdk\1.2.162.0\include\\vulkan\vulkan_fuchsia.h
+
+1607724694 c:\vulkansdk\1.2.162.0\include\\vulkan\vulkan_ios.h
+
+1607724694 c:\vulkansdk\1.2.162.0\include\\vulkan\vulkan_macos.h
+
+1607724694 c:\vulkansdk\1.2.162.0\include\\vulkan\vulkan_metal.h
+
+1607724694 c:\vulkansdk\1.2.162.0\include\\vulkan\vulkan_vi.h
+
+1607724694 c:\vulkansdk\1.2.162.0\include\\vulkan\vulkan_wayland.h
+
+1607724694 c:\vulkansdk\1.2.162.0\include\\vulkan\vulkan_win32.h
+
+1607724694 c:\vulkansdk\1.2.162.0\include\\vulkan\vulkan_xcb.h
+
+1607724694 c:\vulkansdk\1.2.162.0\include\\vulkan\vulkan_xlib.h
+
+1607724694 c:\vulkansdk\1.2.162.0\include\\vulkan\vulkan_directfb.h
+
+1607724694 c:\vulkansdk\1.2.162.0\include\\vulkan\vulkan_xlib_xrandr.h
+
+1607724694 c:\vulkansdk\1.2.162.0\include\\vulkan\vulkan_ggp.h
+
+1607724694 c:\vulkansdk\1.2.162.0\include\\vulkan\vulkan_beta.h
+
+1607725366 c:\vulkansdk\1.2.162.0\include\\shaderc\shaderc.h
+	<stdbool.h>
+	<stddef.h>
+	<stdint.h>
+	"shaderc/env.h"
+	"shaderc/status.h"
+	"shaderc/visibility.h"
+
+1607725366 c:\vulkansdk\1.2.162.0\include\\shaderc\env.h
+	<stdint.h>
+
+1607725366 c:\vulkansdk\1.2.162.0\include\\shaderc\status.h
+
+1607725366 c:\vulkansdk\1.2.162.0\include\\shaderc\visibility.h
 

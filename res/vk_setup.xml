@@ -4,15 +4,19 @@
     <ApplicationVersion>1.0.0</ApplicationVersion>
     <EngineName>3DENG</EngineName>
     <EngineVersion>1.0.0</EngineVersion>
-    <RequiredInterfaceExtensions>
-    </RequiredInterfaceExtensions>
-    <RequiredInterfaceLayers>
-        <Layer name="VK_LAYER_KHRONOS_validation" minversion="1.0.0"/>
-    </RequiredInterfaceLayers>
+    <RequiredInstanceExtensions>
+        <Extension name="VK_KHR_surface" minversion="0.0.1"/>
+        <Extension name="VK_KHR_win32_surface" minversion="0.0.1"/>
+        <Extension name="VK_EXT_debug_utils" minversion="0.0.1"/>
+    </RequiredInstanceExtensions>
+    <RequiredInstanceLayers>
+        <Layer name="VK_LAYER_KHRONOS_validation" minversion="0.0.1"/>
+    </RequiredInstanceLayers>
     <RequiredDeviceExtensions>
-        <Extension name="VK_KHR_swapchain" minversion="1.0.0"/>
+        <Extension name="VK_KHR_swapchain" minversion="0.0.1"/>
     </RequiredDeviceExtensions>
     <RequiredDeviceLayers>
+        <Layer name="VK_LAYER_KHRONOS_validation" minversion="0.0.1"/>
     </RequiredDeviceLayers>
 </Debug>
 <Release>
@@ -20,14 +24,17 @@
     <ApplicationVersion>1.0.0</ApplicationVersion>
     <EngineName>3DENG</EngineName>
     <EngineVersion>1.0.0</EngineVersion>
-    <RequiredInterfaceExtensions>
-    </RequiredInterfaceExtensions>
-    <RequiredInterfaceLayers>
-        <Layer name="VK_LAYER_KHRONOS_validation" minversion="1.0.0"/>
-    </RequiredInterfaceLayers>
+    <RequiredInstanceExtensions>
+        <Extension name="VK_KHR_surface" minversion="0.0.1"/>
+        <Extension name="VK_KHR_win32_surface" minversion="0.0.1"/>
+    </RequiredInstanceExtensions>
+    <RequiredInstanceLayers>
+        <Layer name="VK_LAYER_KHRONOS_validation" minversion="0.0.1"/>
+    </RequiredInstanceLayers>
     <RequiredDeviceExtensions>
-        <Extension name="VK_KHR_swapchain" minversion="1.0.0"/>
+        <Extension name="VK_KHR_swapchain" minversion="0.0.1"/>
     </RequiredDeviceExtensions>
     <RequiredDeviceLayers>
+        <Layer name="VK_LAYER_KHRONOS_validation" minversion="0.0.1"/>
     </RequiredDeviceLayers>
 </Release>
