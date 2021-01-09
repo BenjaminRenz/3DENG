@@ -34,6 +34,31 @@ uint32_t min_uint32_t(uint32_t a, uint32_t b){
     }
 }
 
+void eng_createShaderModule(char* ShaderFileLocation){
+    FILE* ShaderXmlFileP=fopen(ShaderFileLocation,"rb");
+    if(ShaderXmlFileP==NULL){
+        dprintf(DBGT_ERROR,"Could not open file %s for compilation",ShaderFileLocation);
+        exit(1);
+    }
+    struct xmlTreeElement* xmlRootElementP;
+    readXML(ShaderXmlFileP,&xmlRootElementP);
+    struct xmlTreeElement* VertexShaderXmlElmntP=getFirstSubelementWith(xmlRootElementP,Dl_utf32_fromString("Vertex"),NULL,NULL,NULL,1);
+    struct xmlTreeElement* VertexShaderContentXmlElmntP=getFirstSubelementWith(xmlRootElementP,NULL,NULL,NULL,xmltype_chardata,1);
+    uint8_t* VertexShaderAsciiSourceP=malloc(VertexShaderContentXmlElmntP->content->itemcnt*sizeof(char*));
+    uint32_t sourceLength=utf32CutASCII(VertexShaderContentXmlElmntP->content->items,VertexShaderContentXmlElmntP->content->itemcnt,VertexShaderAsciiSourceP);
+    shaderc_compiler_t shaderCompilerObj=shaderc_compiler_initialize();
+    shaderc_compilation_result_t compResult=shaderc_compile_into_spv(shaderCompilerObj,VertexShaderAsciiSourceP,sourceLength,shaderc_glsl_vertex_shader,ShaderFileLocation,"main",NULL);
+    if(shaderc_result_get_compilation_status(compResult)){
+        dprintf(DBGT_ERROR,"Shader compilation failed");
+        if(shaderc_result_get_num_errors(compResult)){
+            dprintf(DBGT_ERROR,"Error was:\n%s",shaderc_result_get_error_message(compResult));
+            exit(1);
+        }
+    }
+    dprintf(DBGT_INFO,"While compiling %s there were %d warnings.",ShaderFileLocation,shaderc_result_get_num_warnings(compResult));
+    shaderc_compiler_release(shaderCompilerObj);
+}
+
 uint32_t clamp_uint32_t(uint32_t lower_bound,uint32_t clampedValueInput,uint32_t upper_bound){
     return max_uint32_t(min_uint32_t(upper_bound,clampedValueInput),lower_bound);
 }
@@ -736,6 +761,7 @@ int main(int argc, char** argv){
     eng_createDevice(&engVkRuntimeInfo,deviceRankingP);
     eng_createSwapChain(&engVkRuntimeInfo,mainWindowP);
     eng_createImageViews(&engVkRuntimeInfo);
+    eng_createShaderModule("./shader1.xml");
     dprintf(DBGT_INFO,"Got here");
     while (!glfwWindowShouldClose(mainWindowP)) {
         glfwPollEvents();
