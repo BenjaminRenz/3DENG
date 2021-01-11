@@ -43,7 +43,8 @@
 			<Add library="submodules/glfw/libglfw3.a" />
 			<Add library="gdi32" />
 			<Add library="vulkan-1" />
-			<Add library="shaderc_combined" />
+			<Add library="shaderc_shared" />
+			<Add library="shaderc_util" />
 			<Add directory="C:/VulkanSDK/1.2.162.0/Lib" />
 		</Linker>
 		<Unit filename="main.c">

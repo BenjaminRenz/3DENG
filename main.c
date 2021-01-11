@@ -42,10 +42,11 @@ void eng_createShaderModule(char* ShaderFileLocation){
     }
     struct xmlTreeElement* xmlRootElementP;
     readXML(ShaderXmlFileP,&xmlRootElementP);
-    struct xmlTreeElement* VertexShaderXmlElmntP=getFirstSubelementWith(xmlRootElementP,Dl_utf32_fromString("Vertex"),NULL,NULL,NULL,1);
-    struct xmlTreeElement* VertexShaderContentXmlElmntP=getFirstSubelementWith(xmlRootElementP,NULL,NULL,NULL,xmltype_chardata,1);
-    uint8_t* VertexShaderAsciiSourceP=malloc(VertexShaderContentXmlElmntP->content->itemcnt*sizeof(char*));
+    struct xmlTreeElement* VertexShaderXmlElmntP=getFirstSubelementWith(xmlRootElementP,Dl_utf32_fromString("vertex"),NULL,NULL,NULL,1);
+    struct xmlTreeElement* VertexShaderContentXmlElmntP=getFirstSubelementWith(VertexShaderXmlElmntP,NULL,NULL,NULL,xmltype_chardata,1);
+    uint8_t* VertexShaderAsciiSourceP=(char*)malloc((VertexShaderContentXmlElmntP->content->itemcnt+1)*sizeof(char));
     uint32_t sourceLength=utf32CutASCII(VertexShaderContentXmlElmntP->content->items,VertexShaderContentXmlElmntP->content->itemcnt,VertexShaderAsciiSourceP);
+    dprintf(DBGT_INFO,"Raw shader string:\n%s",VertexShaderAsciiSourceP);
     shaderc_compiler_t shaderCompilerObj=shaderc_compiler_initialize();
     shaderc_compilation_result_t compResult=shaderc_compile_into_spv(shaderCompilerObj,VertexShaderAsciiSourceP,sourceLength,shaderc_glsl_vertex_shader,ShaderFileLocation,"main",NULL);
     if(shaderc_result_get_compilation_status(compResult)){
@@ -761,7 +762,7 @@ int main(int argc, char** argv){
     eng_createDevice(&engVkRuntimeInfo,deviceRankingP);
     eng_createSwapChain(&engVkRuntimeInfo,mainWindowP);
     eng_createImageViews(&engVkRuntimeInfo);
-    eng_createShaderModule("./shader1.xml");
+    eng_createShaderModule("./res/shader1.xml");
     dprintf(DBGT_INFO,"Got here");
     while (!glfwWindowShouldClose(mainWindowP)) {
         glfwPollEvents();
