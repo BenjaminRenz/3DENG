@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #define GLFW_INCLUDE_VULKAN
 #include "vulkan/vulkan.h"
 #include "shaderc/shaderc.h"
@@ -18,6 +19,59 @@ struct vulkanObj{
 
 };
 
+struct VulkanRuntimeInfo{
+    GLFWwindow* mainWindowP;
+
+    VkInstance instance;
+    uint32_t InstExtensionCount;
+    char** InstExtensionNamesPP;
+    uint32_t InstLayerCount;
+    char** InstLayerNamesPP;
+
+    VkPhysicalDevice* physAvailDevicesP;
+    uint32_t physDeviceCount;
+    VkPhysicalDevice physSelectedDevice;
+
+    VkDevice device;
+    uint32_t DevExtensionCount;
+    char** DevExtensionNamesPP;
+    uint32_t DevLayerCount;
+    char** DevLayerNamesPP;
+
+    uint32_t graphics_queue_family_idx;
+    VkQueue  graphics_queue;
+
+    VkSurfaceKHR surface;
+    VkSwapchainKHR swapChain;
+    uint32_t swapChainImageCount;
+    VkImage* swapChainImagesP;
+    VkExtent2D swapChainImageExtent;
+    VkSurfaceFormatKHR swapChainFormat;
+    VkImageView* swapChainImageViewsP;
+
+    VkRenderPass renderPass;
+
+    VkShaderModule VertexShaderModule;
+    VkShaderModule FragmentShaderModule;
+
+    VkPipeline graphicsPipeline;
+
+    uint32_t FramebufferCount;
+    VkFramebuffer* FramebufferP;
+
+    uint32_t CommandbufferCount;   //TODO merge with FramebufferCount and swapChainImageCount
+    VkCommandBuffer* CommandbufferP;
+
+    VkCommandPool commandPool;
+    VkCommandBuffer primaryCommandBuffer;
+
+    VkSemaphore* imageAvailableSemaphoreP;
+    VkSemaphore* renderFinishedSemaphoreP;
+    VkFence*     ImageAlreadyProcessingFenceP;
+};
+
+
+
 uint32_t max_uint32_t(uint32_t a, uint32_t b){
     if(a>b){
         return a;
@@ -34,7 +88,7 @@ uint32_t min_uint32_t(uint32_t a, uint32_t b){
     }
 }
 
-void eng_createShaderModule(char* ShaderFileLocation){
+void eng_createShaderModule(struct VulkanRuntimeInfo* vkRuntimeInfoP,char* ShaderFileLocation){
     FILE* ShaderXmlFileP=fopen(ShaderFileLocation,"rb");
     if(ShaderXmlFileP==NULL){
         dprintf(DBGT_ERROR,"Could not open file %s for compilation",ShaderFileLocation);
@@ -42,22 +96,62 @@ void eng_createShaderModule(char* ShaderFileLocation){
     }
     struct xmlTreeElement* xmlRootElementP;
     readXML(ShaderXmlFileP,&xmlRootElementP);
-    struct xmlTreeElement* VertexShaderXmlElmntP=getFirstSubelementWith(xmlRootElementP,Dl_utf32_fromString("vertex"),NULL,NULL,NULL,1);
+
+    struct xmlTreeElement* VertexShaderXmlElmntP=getFirstSubelementWith(xmlRootElementP,Dl_utf32_fromString("vertex"),NULL,NULL,0,1);
     struct xmlTreeElement* VertexShaderContentXmlElmntP=getFirstSubelementWith(VertexShaderXmlElmntP,NULL,NULL,NULL,xmltype_chardata,1);
-    uint8_t* VertexShaderAsciiSourceP=(char*)malloc((VertexShaderContentXmlElmntP->content->itemcnt+1)*sizeof(char));
-    uint32_t sourceLength=utf32CutASCII(VertexShaderContentXmlElmntP->content->items,VertexShaderContentXmlElmntP->content->itemcnt,VertexShaderAsciiSourceP);
-    dprintf(DBGT_INFO,"Raw shader string:\n%s",VertexShaderAsciiSourceP);
+    char* VertexShaderAsciiSourceP=(char*)malloc((VertexShaderContentXmlElmntP->content->itemcnt+1)*sizeof(char));
+    uint32_t VertexSourceLength=utf32CutASCII(VertexShaderContentXmlElmntP->content->items,VertexShaderContentXmlElmntP->content->itemcnt,VertexShaderAsciiSourceP);
+
+
+    struct xmlTreeElement* FragmentShaderXmlElmntP=getFirstSubelementWith(xmlRootElementP,Dl_utf32_fromString("fragment"),NULL,NULL,0,1);
+    struct xmlTreeElement* FragmentShaderContentXmlElmntP=getFirstSubelementWith(FragmentShaderXmlElmntP,NULL,NULL,NULL,xmltype_chardata,1);
+    char* FragmentShaderAsciiSourceP=(char*)malloc((FragmentShaderContentXmlElmntP->content->itemcnt+1)*sizeof(char));
+    uint32_t FragmentSourceLength=utf32CutASCII(FragmentShaderContentXmlElmntP->content->items,FragmentShaderContentXmlElmntP->content->itemcnt,FragmentShaderAsciiSourceP);
+
     shaderc_compiler_t shaderCompilerObj=shaderc_compiler_initialize();
-    shaderc_compilation_result_t compResult=shaderc_compile_into_spv(shaderCompilerObj,VertexShaderAsciiSourceP,sourceLength,shaderc_glsl_vertex_shader,ShaderFileLocation,"main",NULL);
-    if(shaderc_result_get_compilation_status(compResult)){
-        dprintf(DBGT_ERROR,"Shader compilation failed");
-        if(shaderc_result_get_num_errors(compResult)){
-            dprintf(DBGT_ERROR,"Error was:\n%s",shaderc_result_get_error_message(compResult));
+    shaderc_compilation_result_t compResultVertex=shaderc_compile_into_spv(shaderCompilerObj,VertexShaderAsciiSourceP,VertexSourceLength,shaderc_glsl_vertex_shader,ShaderFileLocation,"main",NULL);
+    shaderc_compilation_result_t compResultFragment=shaderc_compile_into_spv(shaderCompilerObj,FragmentShaderAsciiSourceP,FragmentSourceLength,shaderc_glsl_fragment_shader,ShaderFileLocation,"main",NULL);
+    free(VertexShaderAsciiSourceP);
+    free(FragmentShaderAsciiSourceP);
+    //Print result for vertex
+    if(shaderc_result_get_compilation_status(compResultVertex)){
+        dprintf(DBGT_ERROR,"Vertex shader compilation failed");
+        if(shaderc_result_get_num_errors(compResultVertex)){
+            dprintf(DBGT_ERROR,"Error was:\n%s",shaderc_result_get_error_message(compResultVertex));
             exit(1);
         }
     }
-    dprintf(DBGT_INFO,"While compiling %s there were %d warnings.",ShaderFileLocation,shaderc_result_get_num_warnings(compResult));
+    dprintf(DBGT_INFO,"While compiling vertex_%s there were %lld warnings.",ShaderFileLocation,shaderc_result_get_num_warnings(compResultVertex));
+    //Print result for fragment
+    if(shaderc_result_get_compilation_status(compResultFragment)){
+        dprintf(DBGT_ERROR,"Fragment shader compilation failed");
+        if(shaderc_result_get_num_errors(compResultFragment)){
+            dprintf(DBGT_ERROR,"Error was:\n%s",shaderc_result_get_error_message(compResultFragment));
+            exit(1);
+        }
+    }
+    dprintf(DBGT_INFO,"While compiling fragment_%s there were %lld warnings.",ShaderFileLocation,shaderc_result_get_num_warnings(compResultFragment));
+
+    shaderc_result_get_bytes(compResultFragment);
+    //cleanup
+
     shaderc_compiler_release(shaderCompilerObj);
+
+    VkShaderModuleCreateInfo ShaderModuleCreateInfo;
+    ShaderModuleCreateInfo.sType=VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    ShaderModuleCreateInfo.pNext=NULL;
+    ShaderModuleCreateInfo.flags=0;
+    ShaderModuleCreateInfo.pCode=(uint32_t*)shaderc_result_get_bytes(compResultVertex);
+    ShaderModuleCreateInfo.codeSize=shaderc_result_get_length(compResultVertex);
+    vkCreateShaderModule(vkRuntimeInfoP->device,&ShaderModuleCreateInfo,NULL,&(vkRuntimeInfoP->VertexShaderModule));
+    //Recycle ShaderModuleCreateInfo
+
+    ShaderModuleCreateInfo.pCode=(uint32_t*)shaderc_result_get_bytes(compResultFragment);
+    ShaderModuleCreateInfo.codeSize=shaderc_result_get_length(compResultFragment);
+    vkCreateShaderModule(vkRuntimeInfoP->device,&ShaderModuleCreateInfo,NULL,&(vkRuntimeInfoP->FragmentShaderModule));
+
+    //shaderc_result_release(compResultVertex);
+    //shaderc_result_release(compResultFragment);
 }
 
 uint32_t clamp_uint32_t(uint32_t lower_bound,uint32_t clampedValueInput,uint32_t upper_bound){
@@ -121,40 +215,14 @@ void loadDaeObject(char* filePath,char* meshName,struct vulkanObj* outputVulkanO
     struct DynamicList* PositionsDlP=Dl_utf32_to_Dl_float_freeArg123(Dl_CMatch_create(4,' ',' ','\t','\t'),Dl_CMatch_create(4,'e','e','E','E'),Dl_CMatch_create(2,'.','.'),xmlPositionsFloatContentP->content);
 }
 
-struct VulkanRuntimeInfo{
-    GLFWwindow* mainWindowP;
-
-    VkInstance instance;
-    uint32_t InstExtensionCount;
-    char** InstExtensionNamesPP;
-    uint32_t InstLayerCount;
-    char** InstLayerNamesPP;
-
-    VkPhysicalDevice* physAvailDevicesP;
-    uint32_t physDeviceCount;
-    VkPhysicalDevice physSelectedDevice;
-
-    VkDevice device;
-    uint32_t DevExtensionCount;
-    char** DevExtensionNamesPP;
-    uint32_t DevLayerCount;
-    char** DevLayerNamesPP;
-
-    uint32_t graphics_queue_family_idx;
-    VkQueue  graphics_queue;
-
-    VkSurfaceKHR surface;
-    VkSwapchainKHR swapChain;
-    uint32_t swapChainImageCount;
-    VkImage* swapChainImagesP;
-    VkExtent2D swapChainImageExtent;
-    VkSurfaceFormatKHR swapChainFormat;
-    VkImageView* swapChainImageViewsP;
-
-
-    VkCommandPool commandPool;
-    VkCommandBuffer primaryCommandBuffer;
-};
+uint32_t findBestMemoryType(struct VulkanRuntimeInfo* vkRuntimeInfoP,uint32_t requiredBitfield,VkMemoryPropertyFlags properties){
+    //Get information about all available memory types
+    VkPhysicalDeviceMemoryProperties DeviceMemProperties;
+    vkGetPhysicalDeviceMemoryProperties(vkRuntimeInfoP->device,&DeviceMemProperties);
+    for(uint32_t MemoryTypeIdx=0;MemoryTypeIdx<DeviceMemProperties.memoryTypeCount;MemoryTypeIdx++){
+        if(DeviceMemProperties.memoryTypes)
+    }
+}
 
 
 
@@ -649,7 +717,7 @@ void eng_createSwapChain(struct VulkanRuntimeInfo* vkRuntimeInfoP,GLFWwindow* gl
     //choose presentation mode
     uint32_t availableModeIdx;
     for(availableModeIdx=0;availableModeIdx<presentModeCount;availableModeIdx++){
-        if(PresentModeP[availableModeIdx]==VK_PRESENT_MODE_IMMEDIATE_KHR){
+        if(PresentModeP[availableModeIdx]==VK_PRESENT_MODE_FIFO_KHR ){
             break;
         }
     }
@@ -658,11 +726,11 @@ void eng_createSwapChain(struct VulkanRuntimeInfo* vkRuntimeInfoP,GLFWwindow* gl
         exit(1);
     }
 
-    uint32_t glfw_height;
-    uint32_t glfw_width;
+    int32_t glfw_height;
+    int32_t glfw_width;
     glfwGetFramebufferSize(glfwWindowP,&glfw_height,&glfw_width);
-    (vkRuntimeInfoP->swapChainImageExtent).height=clamp_uint32_t(surfaceCapabilities.minImageExtent.height,glfw_height,surfaceCapabilities.maxImageExtent.height);
-    (vkRuntimeInfoP->swapChainImageExtent).width=clamp_uint32_t(surfaceCapabilities.minImageExtent.width,glfw_width,surfaceCapabilities.maxImageExtent.width);
+    (vkRuntimeInfoP->swapChainImageExtent).height=clamp_uint32_t(surfaceCapabilities.minImageExtent.height,(uint32_t)glfw_height,surfaceCapabilities.maxImageExtent.height);
+    (vkRuntimeInfoP->swapChainImageExtent).width=clamp_uint32_t(surfaceCapabilities.minImageExtent.width,(uint32_t)glfw_width,surfaceCapabilities.maxImageExtent.width);
 
     VkSwapchainCreateInfoKHR swapchainCreateInfo;
     swapchainCreateInfo.sType=VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -718,21 +786,353 @@ void eng_createImageViews(struct VulkanRuntimeInfo* vkRuntimeInfoP){
         }
     }
 }
-void createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP){
-    VkShaderModule VertexShader;
-    VkShaderModuleCreateInfo ShaderModuleCreateInfo;
-    ShaderModuleCreateInfo.sType=VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    ShaderModuleCreateInfo.pNext=NULL;
-    ShaderModuleCreateInfo.flags=0;
-    //ShaderModuleCreateInfo.codeSize
-    //ShaderModuleCreateInfo.pCode
+void eng_createRenderPass(struct VulkanRuntimeInfo* vkRuntimeInfoP){
+    VkAttachmentDescription ColorAttachments={0};
+    ColorAttachments.flags=0;
+    //ColorAttachments.format=vkRuntimeInfoP->swapChainFormat;
+    ColorAttachments.format=(vkRuntimeInfoP->swapChainFormat).format;
+    ColorAttachments.samples=VK_SAMPLE_COUNT_1_BIT;
+    ColorAttachments.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;
+    ColorAttachments.storeOp=VK_ATTACHMENT_STORE_OP_STORE;
+    ColorAttachments.stencilLoadOp=VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    ColorAttachments.stencilStoreOp=VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    ColorAttachments.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
+    ColorAttachments.finalLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
-    //vkCreateShaderModule(vkRuntimeInfoP->device,&ShaderModuleCreateInfo,NULL,&VertexShader);
+    VkAttachmentReference ColorAttachmentRef={0};
+    ColorAttachmentRef.attachment=0;
+    ColorAttachmentRef.layout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subPasses={0};
+    subPasses.flags=0;
+    subPasses.pipelineBindPoint=VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subPasses.colorAttachmentCount=1;
+    subPasses.pColorAttachments=&ColorAttachmentRef;
+
+    VkRenderPassCreateInfo RenderPassInfo={0};
+    RenderPassInfo.sType=VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    RenderPassInfo.flags=0;
+    RenderPassInfo.pNext=NULL;
+    RenderPassInfo.dependencyCount=0;
+    RenderPassInfo.pDependencies=NULL;
+    RenderPassInfo.attachmentCount=1;
+    RenderPassInfo.pAttachments=&ColorAttachments;
+    RenderPassInfo.subpassCount=1;
+    RenderPassInfo.pSubpasses=&subPasses;
+
+    if(vkCreateRenderPass(vkRuntimeInfoP->device,&RenderPassInfo,NULL,&vkRuntimeInfoP->renderPass)){
+        dprintf(DBGT_ERROR,"Could not create Render pass");
+        exit(1);
+    }
+
 }
 
+void eng_createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP){
+    //VertexInput
+    VkPipelineVertexInputStateCreateInfo PipelineVertexInputStateInfo;
+    PipelineVertexInputStateInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    PipelineVertexInputStateInfo.pNext=NULL;
+    PipelineVertexInputStateInfo.flags=0;
+    PipelineVertexInputStateInfo.vertexAttributeDescriptionCount=0;
+    PipelineVertexInputStateInfo.vertexBindingDescriptionCount=0;
+    //needs to be set if we supply vertex buffers to our shader
+    PipelineVertexInputStateInfo.pVertexAttributeDescriptions=NULL;
+    PipelineVertexInputStateInfo.pVertexBindingDescriptions=NULL;
+
+    VkPipelineInputAssemblyStateCreateInfo PipelineInputAssemblyInfo;
+    PipelineInputAssemblyInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    PipelineInputAssemblyInfo.pNext=NULL;
+    PipelineInputAssemblyInfo.flags=0;
+    PipelineInputAssemblyInfo.primitiveRestartEnable=VK_FALSE;
+    PipelineInputAssemblyInfo.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    //Vertex Shader
+    VkPipelineShaderStageCreateInfo VertexShaderStageCreateInfo;
+    VertexShaderStageCreateInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    VertexShaderStageCreateInfo.pNext=NULL;
+    VertexShaderStageCreateInfo.module=vkRuntimeInfoP->VertexShaderModule;
+    VertexShaderStageCreateInfo.stage=VK_SHADER_STAGE_VERTEX_BIT;
+    VertexShaderStageCreateInfo.flags=0;
+    VertexShaderStageCreateInfo.pSpecializationInfo=NULL;
+    VertexShaderStageCreateInfo.pName="main";
+
+    //Rasterizer
+    //Scissor
+    VkRect2D scissor;
+    scissor.offset.x=0;
+    scissor.offset.y=0;
+    scissor.extent=vkRuntimeInfoP->swapChainImageExtent;
+    //Viewport
+    VkViewport viewport;
+    viewport.x=0.0f;
+    viewport.y=0.0f;
+    viewport.minDepth=0.0f;
+    viewport.maxDepth=1.0f;
+    viewport.height=vkRuntimeInfoP->swapChainImageExtent.height;
+    viewport.width=vkRuntimeInfoP->swapChainImageExtent.width;
+    //ViewportInfo
+    VkPipelineViewportStateCreateInfo PipelineViewportInfo;
+    PipelineViewportInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    PipelineViewportInfo.pNext=NULL;
+    PipelineViewportInfo.flags=0;
+    PipelineViewportInfo.viewportCount=1;
+    PipelineViewportInfo.scissorCount=1;
+    PipelineViewportInfo.pScissors=&scissor;
+    PipelineViewportInfo.pViewports=&viewport;
+    //RasterizerInfo
+    VkPipelineRasterizationStateCreateInfo RasterizationInfo;
+    RasterizationInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    RasterizationInfo.pNext=NULL;
+    RasterizationInfo.flags=0;
+    RasterizationInfo.depthClampEnable=VK_FALSE;
+    RasterizationInfo.rasterizerDiscardEnable=VK_FALSE;
+    RasterizationInfo.polygonMode=VK_POLYGON_MODE_FILL;
+    RasterizationInfo.lineWidth=1.0f;
+    RasterizationInfo.cullMode=VK_CULL_MODE_BACK_BIT;
+    RasterizationInfo.frontFace=VK_FRONT_FACE_CLOCKWISE;
+    RasterizationInfo.depthBiasEnable=VK_FALSE;
+    RasterizationInfo.depthBiasConstantFactor=0.0f;
+    RasterizationInfo.depthBiasClamp=0.0f;
+    RasterizationInfo.depthBiasSlopeFactor=0.0f;
+    //Multisampling
+    VkPipelineMultisampleStateCreateInfo MultisampleInfo;
+    MultisampleInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    MultisampleInfo.pNext=NULL;
+    MultisampleInfo.flags=0;
+    MultisampleInfo.sampleShadingEnable=VK_FALSE;
+    MultisampleInfo.alphaToOneEnable=VK_FALSE;
+    MultisampleInfo.minSampleShading=1.0f;
+    MultisampleInfo.pSampleMask=NULL;
+    MultisampleInfo.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT;
+    MultisampleInfo.sampleShadingEnable=VK_FALSE;
+    MultisampleInfo.alphaToCoverageEnable=VK_FALSE;
+
+    //Fragment
+    VkPipelineShaderStageCreateInfo FragmentShaderStageCreateInfo;
+    FragmentShaderStageCreateInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    FragmentShaderStageCreateInfo.pNext=NULL;
+    FragmentShaderStageCreateInfo.module=vkRuntimeInfoP->FragmentShaderModule;
+    FragmentShaderStageCreateInfo.stage=VK_SHADER_STAGE_FRAGMENT_BIT;
+    FragmentShaderStageCreateInfo.flags=0;
+    FragmentShaderStageCreateInfo.pSpecializationInfo=NULL;
+    FragmentShaderStageCreateInfo.pName="main";
+
+    //Blending
+    VkPipelineColorBlendAttachmentState ColorBlendAttachment;
+    ColorBlendAttachment.colorWriteMask=VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT;
+    ColorBlendAttachment.blendEnable=VK_FALSE;
+    ColorBlendAttachment.colorBlendOp=VK_BLEND_OP_ADD;
+    ColorBlendAttachment.srcColorBlendFactor=VK_BLEND_FACTOR_ONE;
+    ColorBlendAttachment.dstColorBlendFactor=VK_BLEND_FACTOR_ZERO;
+    ColorBlendAttachment.alphaBlendOp=VK_BLEND_OP_ADD;
+    ColorBlendAttachment.srcAlphaBlendFactor=VK_BLEND_FACTOR_ONE;
+    ColorBlendAttachment.dstAlphaBlendFactor=VK_BLEND_FACTOR_ZERO;
+
+    VkPipelineColorBlendStateCreateInfo ColorBlendInfo;
+    ColorBlendInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    ColorBlendInfo.pNext=NULL;
+    ColorBlendInfo.flags=0;
+    ColorBlendInfo.logicOp=VK_FALSE;
+    ColorBlendInfo.attachmentCount=1;
+    ColorBlendInfo.pAttachments=&ColorBlendAttachment;
+    ColorBlendInfo.blendConstants[0]=0.0f;
+    ColorBlendInfo.blendConstants[1]=0.0f;
+    ColorBlendInfo.blendConstants[2]=0.0f;
+    ColorBlendInfo.blendConstants[3]=0.0f;
+
+    //Pipeline Layout for Uniforms
+    VkPipelineLayout PipelineLayout;
+    VkPipelineLayoutCreateInfo PipelineLayoutInfo;
+    PipelineLayoutInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    PipelineLayoutInfo.pNext=NULL;
+    PipelineLayoutInfo.flags=0;
+    PipelineLayoutInfo.setLayoutCount=0;
+    PipelineLayoutInfo.pSetLayouts=NULL;
+    PipelineLayoutInfo.pushConstantRangeCount=0;
+    PipelineLayoutInfo.pPushConstantRanges=NULL;
+
+    if(vkCreatePipelineLayout(vkRuntimeInfoP->device,&PipelineLayoutInfo,NULL,&PipelineLayout)){
+        dprintf(DBGT_ERROR,"Could not create pipeline layout");
+        exit(1);
+    }
+
+    //Assemble everything
+    VkPipelineShaderStageCreateInfo Stages[2]={
+        VertexShaderStageCreateInfo,
+        FragmentShaderStageCreateInfo
+    };
+
+    VkGraphicsPipelineCreateInfo PipelineInfo;
+    PipelineInfo.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    PipelineInfo.pNext=NULL;
+    PipelineInfo.stageCount=2;
+    PipelineInfo.pStages=Stages;
+    PipelineInfo.pVertexInputState=&PipelineVertexInputStateInfo;
+    PipelineInfo.pInputAssemblyState=&PipelineInputAssemblyInfo;
+    PipelineInfo.pColorBlendState=&ColorBlendInfo;
+    PipelineInfo.pDepthStencilState=NULL;
+    PipelineInfo.pDynamicState=NULL;
+    PipelineInfo.pMultisampleState=&MultisampleInfo;
+    PipelineInfo.pRasterizationState=&RasterizationInfo;
+    PipelineInfo.pTessellationState=NULL;
+    PipelineInfo.pViewportState=&PipelineViewportInfo;
+
+    PipelineInfo.layout=PipelineLayout;
+    PipelineInfo.renderPass=vkRuntimeInfoP->renderPass;
+    PipelineInfo.subpass=0;
+    if(vkCreateGraphicsPipelines(vkRuntimeInfoP->device,VK_NULL_HANDLE,1,&PipelineInfo,NULL,&(vkRuntimeInfoP->graphicsPipeline))){
+        dprintf(DBGT_ERROR,"Could not create graphics pipeline");
+        exit(1);
+    }
+}
+
+void eng_createFramebuffers(struct VulkanRuntimeInfo* vkRuntimeInfoP){
+    vkRuntimeInfoP->FramebufferCount=vkRuntimeInfoP->swapChainImageCount;
+    vkRuntimeInfoP->FramebufferP=malloc(sizeof(VkFramebuffer)*vkRuntimeInfoP->FramebufferCount);
+    for(uint32_t framebufferIdx=0;framebufferIdx<vkRuntimeInfoP->FramebufferCount;framebufferIdx++){
+        VkFramebufferCreateInfo FramebufferInfo={0};
+        FramebufferInfo.sType=VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        FramebufferInfo.renderPass=vkRuntimeInfoP->renderPass;
+        FramebufferInfo.height=vkRuntimeInfoP->swapChainImageExtent.height;
+        FramebufferInfo.width=vkRuntimeInfoP->swapChainImageExtent.width;
+        FramebufferInfo.layers=1;
+        FramebufferInfo.attachmentCount=1;
+        FramebufferInfo.pAttachments=&(vkRuntimeInfoP->swapChainImageViewsP[framebufferIdx]);
+        if(vkCreateFramebuffer(vkRuntimeInfoP->device,&FramebufferInfo,NULL,&(vkRuntimeInfoP->FramebufferP[framebufferIdx]))){
+            dprintf(DBGT_ERROR,"Could not create framebuffer");
+            exit(1);
+        }
+    }
+}
+
+void eng_createCommandBuffer(struct VulkanRuntimeInfo* vkRuntimeInfoP){
+    vkRuntimeInfoP->CommandbufferCount=vkRuntimeInfoP->FramebufferCount;
+    vkRuntimeInfoP->CommandbufferP=(VkCommandBuffer*)malloc(sizeof(VkCommandBuffer)*vkRuntimeInfoP->CommandbufferCount);
+
+    VkCommandPoolCreateInfo CommandPoolInfo={0};
+    CommandPoolInfo.sType=VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    CommandPoolInfo.queueFamilyIndex=vkRuntimeInfoP->graphics_queue_family_idx;
+    if(vkCreateCommandPool(vkRuntimeInfoP->device,&CommandPoolInfo,NULL,&(vkRuntimeInfoP->commandPool))){
+        dprintf(DBGT_ERROR,"Could not create command pool");
+        exit(1);
+    }
+    VkCommandBufferAllocateInfo CommandBufferAllocateInfo={0};
+    CommandBufferAllocateInfo.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    CommandBufferAllocateInfo.commandPool=vkRuntimeInfoP->commandPool;
+    CommandBufferAllocateInfo.commandBufferCount=vkRuntimeInfoP->CommandbufferCount;
+    CommandBufferAllocateInfo.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+    if(vkAllocateCommandBuffers(vkRuntimeInfoP->device,&CommandBufferAllocateInfo,vkRuntimeInfoP->CommandbufferP)){
+        dprintf(DBGT_ERROR,"Could not allocate command buffer");
+        exit(1);
+    }
+    for(uint32_t CommandBufferIdx=0;CommandBufferIdx<vkRuntimeInfoP->CommandbufferCount;CommandBufferIdx++){
+        VkCommandBufferBeginInfo CommandBufferBeginInfo={0};
+        CommandBufferBeginInfo.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        if(vkBeginCommandBuffer(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],&CommandBufferBeginInfo)){
+            dprintf(DBGT_ERROR,"Could not begin recording to command buffer");
+            exit(1);
+        }
+
+        VkClearValue clearColor={{0.0f,0.0f,0.0f,1.0f}};
+        VkRenderPassBeginInfo RenderPassInfo={0};
+        RenderPassInfo.sType=VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        RenderPassInfo.framebuffer=vkRuntimeInfoP->FramebufferP[CommandBufferIdx];
+        RenderPassInfo.clearValueCount=1;
+        RenderPassInfo.pClearValues=&clearColor;
+        RenderPassInfo.renderArea.extent=vkRuntimeInfoP->swapChainImageExtent;
+        RenderPassInfo.renderArea.offset.x=0;
+        RenderPassInfo.renderArea.offset.y=0;
+        RenderPassInfo.renderPass=vkRuntimeInfoP->renderPass;
+        vkCmdBeginRenderPass(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],&RenderPassInfo,VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],VK_PIPELINE_BIND_POINT_GRAPHICS,vkRuntimeInfoP->graphicsPipeline);
+        vkCmdDraw(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],3,1,0,0);
+        vkCmdEndRenderPass(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx]);
+        vkEndCommandBuffer(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx]);
+    }
+}
+
+void eng_createSynchronizationPrimitives(struct VulkanRuntimeInfo* vkRuntimeInfoP){
+    //Create Semaphores to sync vkAcquireNextImageKHR with start of buffer execution and
+    //sync end of buffer executing with vkQueuePresentKHR
+    VkSemaphoreCreateInfo SemaphoreInfo={0};
+    SemaphoreInfo.sType=VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    //Create Fences to sync cpu gpu
+    VkFenceCreateInfo FenceInfo={0};
+    FenceInfo.sType=VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    FenceInfo.flags=VK_FENCE_CREATE_SIGNALED_BIT;
+    vkRuntimeInfoP->imageAvailableSemaphoreP=(VkSemaphore*)malloc(sizeof(VkSemaphore)*vkRuntimeInfoP->CommandbufferCount);
+    vkRuntimeInfoP->renderFinishedSemaphoreP=(VkSemaphore*)malloc(sizeof(VkSemaphore)*vkRuntimeInfoP->CommandbufferCount);
+    vkRuntimeInfoP->ImageAlreadyProcessingFenceP=(VkFence*)malloc(sizeof(VkFence)*vkRuntimeInfoP->CommandbufferCount);
+
+    for(uint32_t FrameIdx=0;FrameIdx<vkRuntimeInfoP->CommandbufferCount;FrameIdx++){
+        if(vkCreateFence(vkRuntimeInfoP->device,&FenceInfo,NULL,(vkRuntimeInfoP->ImageAlreadyProcessingFenceP)+FrameIdx)){
+            dprintf(DBGT_ERROR,"Could not create image processing fence");
+            exit(1);
+        }
+        if(vkCreateSemaphore(vkRuntimeInfoP->device,&SemaphoreInfo,NULL,(vkRuntimeInfoP->imageAvailableSemaphoreP)+FrameIdx)){
+            dprintf(DBGT_ERROR,"Could not create image available semaphore");
+            exit(1);
+        }
+        if(vkCreateSemaphore(vkRuntimeInfoP->device,&SemaphoreInfo,NULL,(vkRuntimeInfoP->renderFinishedSemaphoreP)+FrameIdx)){
+            dprintf(DBGT_ERROR,"Could not create image available semaphore");
+            exit(1);
+        }
+    }
+
+}
 
 GLFWerrorfun error_callback(int code,const char* description){
     dprintf(DBGT_ERROR,"Error in glfw code: %d, \n String %s",code,description);
+}
+
+void eng_draw(struct VulkanRuntimeInfo* vkRuntimeInfoP){
+    static uint32_t nextImageIdx=0;
+    //Work
+    if(vkWaitForFences(vkRuntimeInfoP->device,1,(vkRuntimeInfoP->ImageAlreadyProcessingFenceP)+nextImageIdx,VK_TRUE,UINT64_MAX)){
+        dprintf(DBGT_ERROR,"Waiting for fence timeout");
+        exit(1);
+    }
+    if(vkResetFences(vkRuntimeInfoP->device,1,(vkRuntimeInfoP->ImageAlreadyProcessingFenceP)+nextImageIdx)){
+        dprintf(DBGT_ERROR,"Could not reset fence");
+        exit(1);
+    }
+    //Get next image from swapChain
+    if(vkAcquireNextImageKHR(vkRuntimeInfoP->device,vkRuntimeInfoP->swapChain,UINT64_MAX,(vkRuntimeInfoP->imageAvailableSemaphoreP)[nextImageIdx],VK_NULL_HANDLE,&nextImageIdx)){
+        dprintf(DBGT_ERROR,"Error while requesting swapchain image");
+    }
+
+    VkPipelineStageFlags waitStages[]={VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+    VkSubmitInfo SubmitInfo={0};
+    SubmitInfo.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    SubmitInfo.waitSemaphoreCount=1;
+    SubmitInfo.pWaitDstStageMask=waitStages;
+    SubmitInfo.pWaitSemaphores=(vkRuntimeInfoP->imageAvailableSemaphoreP)+nextImageIdx;
+    SubmitInfo.commandBufferCount=1;
+    SubmitInfo.pCommandBuffers=(vkRuntimeInfoP->CommandbufferP)+nextImageIdx;
+    SubmitInfo.signalSemaphoreCount=1;
+    SubmitInfo.pSignalSemaphores=(vkRuntimeInfoP->renderFinishedSemaphoreP)+nextImageIdx;
+
+    if(vkQueueSubmit(vkRuntimeInfoP->graphics_queue,1,&SubmitInfo,vkRuntimeInfoP->ImageAlreadyProcessingFenceP[nextImageIdx])){
+        dprintf(DBGT_ERROR,"Could not submit command buffer to graphic queue");
+        exit(1);
+    }
+    VkPresentInfoKHR PresentInfo={0};
+    PresentInfo.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    PresentInfo.waitSemaphoreCount=1;
+    PresentInfo.pWaitSemaphores=(vkRuntimeInfoP->renderFinishedSemaphoreP)+nextImageIdx;
+    PresentInfo.swapchainCount=1;
+    PresentInfo.pSwapchains=&(vkRuntimeInfoP->swapChain);
+    PresentInfo.pImageIndices=&nextImageIdx;
+    if(vkQueuePresentKHR(vkRuntimeInfoP->graphics_queue,&PresentInfo)){
+        dprintf(DBGT_ERROR,"Could not queue presentation");
+    }
+
+    nextImageIdx+=1;
+    nextImageIdx%=vkRuntimeInfoP->CommandbufferCount;
+
+
 }
 
 int main(int argc, char** argv){
@@ -750,7 +1150,7 @@ int main(int argc, char** argv){
     GLFWwindow* mainWindowP = glfwCreateWindow(1920, 1080, applicationNameCharP, NULL, NULL);
     free(applicationNameCharP);
 
-    if(GLFW_FALSE==glfwVulkanSupported){
+    if(GLFW_FALSE==glfwVulkanSupported()){
         dprintf(DBGT_ERROR,"Vulkan not supported on this device");
         exit(1);
     }
@@ -762,9 +1162,15 @@ int main(int argc, char** argv){
     eng_createDevice(&engVkRuntimeInfo,deviceRankingP);
     eng_createSwapChain(&engVkRuntimeInfo,mainWindowP);
     eng_createImageViews(&engVkRuntimeInfo);
-    eng_createShaderModule("./res/shader1.xml");
+    eng_createShaderModule(&engVkRuntimeInfo,"./res/shader1.xml");
+    eng_createRenderPass(&engVkRuntimeInfo);
+    eng_createGraphicsPipeline(&engVkRuntimeInfo);
+    eng_createFramebuffers(&engVkRuntimeInfo);
+    eng_createCommandBuffer(&engVkRuntimeInfo);
+    eng_createSynchronizationPrimitives(&engVkRuntimeInfo);
     dprintf(DBGT_INFO,"Got here");
     while (!glfwWindowShouldClose(mainWindowP)) {
+        eng_draw(&engVkRuntimeInfo);
         glfwPollEvents();
     }
 }

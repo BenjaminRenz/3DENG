@@ -1,8 +1,9 @@
 # depslib dependency file v1.0
-1610330669 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
+1610650376 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
 	<stdio.h>
 	<stdlib.h>
 	<string.h>
+	<stdint.h>
 	"vulkan/vulkan.h"
 	"shaderc/shaderc.h"
 	"submodules/glfw/glfw3.h"

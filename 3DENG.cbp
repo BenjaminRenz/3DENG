@@ -51,6 +51,7 @@
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="res/kegel_ohne_camera.dae" />
+		<Unit filename="res/shader1.xml" />
 		<Unit filename="res/vk_setup.xml" />
 		<Unit filename="submodules/xmlReader/debug.h" />
 		<Unit filename="submodules/xmlReader/stringutils.c">
