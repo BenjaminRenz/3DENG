@@ -15,8 +15,30 @@
 uint32_t eng_get_version_number_from_xmlemnt(struct xmlTreeElement* currentReqXmlP);
 uint32_t eng_get_version_number_from_UTF32DynlistP(struct DynamicList* inputStringP);
 struct xmlTreeElement* eng_get_eng_setupxml(char* FilePath,int debug_enabled);
-struct vulkanObj{
 
+
+
+struct DataFromDae{
+    struct DynamicList* PositionsDlP;
+    struct DynamicList* PositionsAndNormalIndicesDlP; //alternating, offset by 1
+    struct DynamicList* NormalsDlP;
+};
+
+struct eng3DPINBuffer{
+    VkDeviceSize            TotalSizeWithPadding;
+
+    VkBuffer                PIUBufferHandle;
+    VkMemoryRequirements    PIUBufferMemoryRequirements;
+
+    VkDeviceSize            PositionBufferSize;
+    VkDeviceSize            IndexBufferSize;        //combines position and normal indices for each face
+    VkDeviceSize            NormalBufferSize;
+};
+
+struct eng3dObject{
+    struct DataFromDae    daeData;
+    struct eng3DPINBuffer stagingBuffers;
+    struct eng3DPINBuffer deviceBuffers;
 };
 
 struct VulkanRuntimeInfo{
@@ -68,9 +90,11 @@ struct VulkanRuntimeInfo{
     VkSemaphore* imageAvailableSemaphoreP;
     VkSemaphore* renderFinishedSemaphoreP;
     VkFence*     ImageAlreadyProcessingFenceP;
+
+    VkDeviceMemory StaticPINBuffer;
 };
 
-
+struct eng3dObject ObjectToBeLoaded;
 
 uint32_t max_uint32_t(uint32_t a, uint32_t b){
     if(a>b){
@@ -158,9 +182,9 @@ uint32_t clamp_uint32_t(uint32_t lower_bound,uint32_t clampedValueInput,uint32_t
     return max_uint32_t(min_uint32_t(upper_bound,clampedValueInput),lower_bound);
 }
 
-void loadDaeObject(char* filePath,char* meshName,struct vulkanObj* outputVulkanObjectP){
+void loadDaeObject(char* filePath,char* meshId,struct DataFromDae* outputDataP){
     dprintf(DBGT_INFO,"%llu,%llu,%llu,%llu",sizeof(uint32_t),sizeof(void*),sizeof(void**),sizeof(unsigned int));
-    struct DynamicList* meshID=Dl_utf32_fromString(meshName);
+    struct DynamicList* meshIdDlp=Dl_utf32_fromString(meshId);
 
     FILE* cylinderDaeFileP=fopen(filePath,"rb");
     struct xmlTreeElement* xmlDaeRootP=0;
@@ -170,7 +194,11 @@ void loadDaeObject(char* filePath,char* meshName,struct vulkanObj* outputVulkanO
 
     struct xmlTreeElement* xmlColladaElementP=getNthSubelement(xmlDaeRootP,0);
     struct xmlTreeElement* xmlLibGeoElementP=getFirstSubelementWith_freeArg234(xmlColladaElementP,Dl_utf32_fromString("library_geometries"),NULL,NULL,0,0);
-    struct xmlTreeElement* xmlGeoElementP=getFirstSubelementWith_freeArg234(xmlLibGeoElementP,Dl_utf32_fromString("geometry"),Dl_utf32_fromString("id"),DlDuplicate(sizeof(uint32_t),meshID),0,0); //does  not work?
+    struct xmlTreeElement* xmlGeoElementP=getFirstSubelementWith_freeArg234(xmlLibGeoElementP,Dl_utf32_fromString("geometry"),Dl_utf32_fromString("id"),DlDuplicate(sizeof(uint32_t),meshIdDlp),0,0); //does  not work?
+    if(!xmlGeoElementP){
+        dprintf(DBGT_ERROR,"The collada file does not contain a mesh with the name %s",meshId);
+        exit(1);
+    }
     struct xmlTreeElement* xmlMeshElementP=getFirstSubelementWith_freeArg234(xmlGeoElementP,Dl_utf32_fromString("mesh"),NULL,NULL,0,0);
 
     //Get Triangles
@@ -180,51 +208,267 @@ void loadDaeObject(char* filePath,char* meshName,struct vulkanObj* outputVulkanO
     dprintf(DBGT_INFO,"Model has %lld triangles",((int64_t*)TrianglesCount->items)[0]);
 
     struct xmlTreeElement* xmlTrianglesOrderP=getFirstSubelementWith_freeArg234(xmlTrianglesP,Dl_utf32_fromString("p"),NULL,NULL,0,0);
-    struct xmlTreeElement* xmlTrianglesOrderContentP=getNthSubelement(xmlTrianglesOrderP,0);
-    struct DynamicList* TrianglesOrder=Dl_utf32_to_Dl_int64_freeArg1(Dl_CMatch_create(2,' ',' '),xmlTrianglesOrderContentP->content);
-    dprintf(DBGT_INFO,"Found Triangle order list with %d entries",TrianglesOrder->itemcnt);
+    if(!xmlTrianglesOrderP){
+        dprintf(DBGT_ERROR,"No Triangles Order list found");exit(1);
+    }
+    printXMLsubelements(xmlTrianglesOrderP);
+    struct xmlTreeElement* xmlTrianglesOrderContentP=getNthSubelement(xmlTrianglesOrderP,0);   //TODO does not work because getNthSubelement only considers non chardata elements...
+    if(!xmlTrianglesOrderContentP->content->itemcnt){
+        dprintf(DBGT_ERROR,"Triangles Order List empty");exit(1);
+    }
+    outputDataP->PositionsAndNormalIndicesDlP=Dl_utf32_to_Dl_int64_freeArg1(Dl_CMatch_create(2,' ',' '),xmlTrianglesOrderContentP->content);
+    dprintf(DBGT_INFO,"Found Triangle order list with %d entries",outputDataP->PositionsAndNormalIndicesDlP->itemcnt);
 
     //Get Normals
     struct xmlTreeElement* xmlNormalsSourceP=getFirstSubelementWith_freeArg234(xmlMeshElementP,Dl_utf32_fromString("source"),
                                                                                                 Dl_utf32_fromString("id"),
-                                                                                                DlCombine_freeArg3(sizeof(uint32_t),meshID,Dl_utf32_fromString("-normals")),
+                                                                                                DlCombine_freeArg3(sizeof(uint32_t),meshIdDlp,Dl_utf32_fromString("-normals")),
                                                                                                 0,0);
     struct xmlTreeElement* xmlNormalsFloatP=getFirstSubelementWith_freeArg234(xmlNormalsSourceP,Dl_utf32_fromString("float_array"),
                                                                                                 Dl_utf32_fromString("id"),
-                                                                                                DlCombine_freeArg3(sizeof(uint32_t),meshID,Dl_utf32_fromString("-normals-array")),
+                                                                                                DlCombine_freeArg3(sizeof(uint32_t),meshIdDlp,Dl_utf32_fromString("-normals-array")),
                                                                                                 0,0);
     struct DynamicList* NormalsCountString=getValueFromKeyName_freeArg2(xmlNormalsFloatP->attributes,Dl_utf32_fromString("count"));
     Dl_utf32_print(NormalsCountString);
     struct DynamicList* NormalsCount=Dl_utf32_to_Dl_int64_freeArg1(Dl_CMatch_create(2,' ',' '),NormalsCountString);
     dprintf(DBGT_INFO,"Model has count %lld normal coordinates",((int64_t*)NormalsCount->items)[0]);
     struct xmlTreeElement* xmlNormalsFloatContentP=getNthSubelement(xmlNormalsFloatP,0);
-    struct DynamicList* NormalsDlP=Dl_utf32_to_Dl_float_freeArg123(Dl_CMatch_create(4,' ',' ','\t','\t'),Dl_CMatch_create(4,'e','e','E','E'),Dl_CMatch_create(2,'.','.'),xmlNormalsFloatContentP->content);
-    dprintf(DBGT_INFO,"Model has %d normal coordinates",NormalsDlP->itemcnt);
+    outputDataP->NormalsDlP=Dl_utf32_to_Dl_float_freeArg123(Dl_CMatch_create(4,' ',' ','\t','\t'),Dl_CMatch_create(4,'e','e','E','E'),Dl_CMatch_create(2,'.','.'),xmlNormalsFloatContentP->content);
+    dprintf(DBGT_INFO,"Model has %d normal coordinates",outputDataP->NormalsDlP->itemcnt);
 
     //Get Positions
     struct xmlTreeElement* xmlPositionsSourceP=getFirstSubelementWith_freeArg234(xmlMeshElementP,Dl_utf32_fromString("source"),
-                                                                     Dl_utf32_fromString("id"),DlCombine_freeArg3(sizeof(uint32_t),meshID,Dl_utf32_fromString("-positions")),0,0);
+                                                                     Dl_utf32_fromString("id"),DlCombine_freeArg3(sizeof(uint32_t),meshIdDlp,Dl_utf32_fromString("-positions")),0,0);
 
     struct xmlTreeElement* xmlPositionsFloatP=getFirstSubelementWith_freeArg234(xmlPositionsSourceP,Dl_utf32_fromString("float_array"),
-                                                                    Dl_utf32_fromString("id"),DlCombine_freeArg3(sizeof(uint32_t),meshID,Dl_utf32_fromString("-positions-array")),0,0);
+                                                                    Dl_utf32_fromString("id"),DlCombine_freeArg3(sizeof(uint32_t),meshIdDlp,Dl_utf32_fromString("-positions-array")),0,0);
 
     struct DynamicList* PositionsCountString=getValueFromKeyName_freeArg2(xmlPositionsFloatP->attributes,Dl_utf32_fromString("count"));
     struct DynamicList* PositionsCount=Dl_utf32_to_Dl_int64_freeArg1(Dl_CMatch_create(2,' ',' '),PositionsCountString);
     //if(xmlPositionsFloatP->content->type!=dynlisttype_utf32chars){dprintf(DBGT_ERROR,"Invalid content type");return 0;}
     struct xmlTreeElement* xmlPositionsFloatContentP=getNthSubelement(xmlPositionsFloatP,0);
-    struct DynamicList* PositionsDlP=Dl_utf32_to_Dl_float_freeArg123(Dl_CMatch_create(4,' ',' ','\t','\t'),Dl_CMatch_create(4,'e','e','E','E'),Dl_CMatch_create(2,'.','.'),xmlPositionsFloatContentP->content);
+    outputDataP->PositionsDlP=Dl_utf32_to_Dl_float_freeArg123(Dl_CMatch_create(4,' ',' ','\t','\t'),Dl_CMatch_create(4,'e','e','E','E'),Dl_CMatch_create(2,'.','.'),xmlPositionsFloatContentP->content);
+
+    //TODO Remove xml from memory
 }
 
-uint32_t findBestMemoryType(struct VulkanRuntimeInfo* vkRuntimeInfoP,uint32_t requiredBitfield,VkMemoryPropertyFlags properties){
+uint32_t countBitsInUint32(uint32_t input){
+    //add subbits in increasing bin sizes (bit0+bit1),(bit2+bit3),...
+    input=(input&0x55555555)+((input>>1)&0x55555555);
+    input=(input&0x33333333)+((input>>2)&0x33333333);
+    input=(input&0x0f0f0f0f)+((input>>4)&0x0f0f0f0f);
+    input=(input&0x00ff00ff)+((input>>8)&0x00ff00ff);
+    input=(input&0x0000ffff)+(input>>16);
+    return input;
+}
+
+int32_t findBestMemoryType(struct VulkanRuntimeInfo* vkRuntimeInfoP,VkMemoryPropertyFlags supportedBitfield,VkMemoryPropertyFlags downrankBitfield, VkMemoryPropertyFlags uprankBitfield, VkDeviceSize minsize){
     //Get information about all available memory types
     VkPhysicalDeviceMemoryProperties DeviceMemProperties;
-    vkGetPhysicalDeviceMemoryProperties(vkRuntimeInfoP->device,&DeviceMemProperties);
+    vkGetPhysicalDeviceMemoryProperties(vkRuntimeInfoP->physSelectedDevice,&DeviceMemProperties);
+    int32_t bestRankingMemoryTypeIdx=-1;
+    uint32_t bestRanking=0;
     for(uint32_t MemoryTypeIdx=0;MemoryTypeIdx<DeviceMemProperties.memoryTypeCount;MemoryTypeIdx++){
-        if(DeviceMemProperties.memoryTypes)
+        uint32_t currentRank=sizeof(VkMemoryPropertyFlags)*8+1;
+        //Check if memory has the required size
+        uint32_t CurrentMemoryTypeHeapIdx=DeviceMemProperties.memoryTypes[MemoryTypeIdx].heapIndex;
+        if(DeviceMemProperties.memoryHeaps[CurrentMemoryTypeHeapIdx].size<minsize){
+            currentRank=0;
+            continue;
+        }
+        //Check if memory has the required VkMemoryPropertyFlags
+        if(!(DeviceMemProperties.memoryTypes[MemoryTypeIdx].propertyFlags&supportedBitfield)){
+            currentRank=0;
+            continue;
+        }
+        //Downrank memory that has VkMemoryPropertyFlags downrankBitfield set
+        currentRank-=countBitsInUint32(DeviceMemProperties.memoryTypes[MemoryTypeIdx].propertyFlags&uprankBitfield);
+        //Uprank memory that has VkMemoryPropertyFlags uprankBitfield set
+        currentRank+=countBitsInUint32(DeviceMemProperties.memoryTypes[MemoryTypeIdx].propertyFlags&downrankBitfield);
+        if(currentRank>bestRanking){
+            bestRanking=currentRank;
+            bestRankingMemoryTypeIdx=(int32_t)MemoryTypeIdx;//we don't expect memory types over 2^31, so use the extra bit for error handling
+        }
+    }
+    if(!bestRanking){
+        dprintf(DBGT_ERROR,"No suitable memory type found");
+        exit(1);
+    }
+    return bestRankingMemoryTypeIdx;
+}
+
+
+void eng_IPUSizeCalc(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct eng3DPINBuffer* PIUBuffersP,VkBufferUsageFlags usageTransferSourceOrDest){
+
+    VkBufferCreateInfo BufferInfo={0};
+    BufferInfo.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    BufferInfo.usage=
+        usageTransferSourceOrDest|VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT|
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT|VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    BufferInfo.sharingMode=VK_SHARING_MODE_EXCLUSIVE;
+
+    //Create combined Position-, Buffer
+    BufferInfo.size=
+        PIUBuffersP->PositionBufferSize+
+        PIUBuffersP->NormalBufferSize+
+        PIUBuffersP->IndexBufferSize;
+
+    if(vkCreateBuffer(vkRuntimeInfoP->device,&BufferInfo,NULL,&(PIUBuffersP->PIUBufferHandle))){
+        dprintf(DBGT_ERROR,"Could not create buffer");
+        exit(1);
+    }
+    //get memory requirements
+    vkGetBufferMemoryRequirements(vkRuntimeInfoP->device,PIUBuffersP->PIUBufferHandle,&(PIUBuffersP->PIUBufferMemoryRequirements));
+    //Check if already aligned
+    if((PIUBuffersP->PIUBufferMemoryRequirements.size)%(PIUBuffersP->PIUBufferMemoryRequirements.alignment)){
+        //calculate multiples of alignment
+        PIUBuffersP->TotalSizeWithPadding=((PIUBuffersP->PIUBufferMemoryRequirements.size/PIUBuffersP->PIUBufferMemoryRequirements.alignment)+1);
+        PIUBuffersP->TotalSizeWithPadding*=PIUBuffersP->PIUBufferMemoryRequirements.alignment;
+    }else{
+        PIUBuffersP->TotalSizeWithPadding=PIUBuffersP->PIUBufferMemoryRequirements.size;
     }
 }
 
+void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP){
+    //Iterate over dae files and get number of vertices/indices and calculate their size
+    VkDeviceSize totalStagingPIUBufferSize=0;
 
+    //TODO remove this an add real object loader
+    //struct eng3dObject ObjectToBeLoaded;    TODO remove this global hack
+    loadDaeObject("./res/kegel_ohne_camera.dae","Cylinder-mesh",&(ObjectToBeLoaded.daeData));
+    ObjectToBeLoaded.stagingBuffers.PositionBufferSize=     ((ObjectToBeLoaded.daeData.PositionsDlP->itemcnt        *sizeof(float))/3)*4; //multidimensional vectors need to be aligned to N,2N or 4N of element size
+    ObjectToBeLoaded.stagingBuffers.NormalBufferSize=       ((ObjectToBeLoaded.daeData.NormalsDlP->itemcnt          *sizeof(float))/3)*4;          //multidimensional vectors need to be aligned to N,2N or 4N of element size
+    ObjectToBeLoaded.stagingBuffers.IndexBufferSize=((ObjectToBeLoaded.daeData.PositionsAndNormalIndicesDlP->itemcnt*sizeof(uint32_t))/2); //only every second index is for the positions
+
+    //Calculate size requirements for staging buffer on cpu side
+    //for{
+    eng_IPUSizeCalc(vkRuntimeInfoP,&(ObjectToBeLoaded.stagingBuffers),VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+    totalStagingPIUBufferSize+= ObjectToBeLoaded.stagingBuffers.TotalSizeWithPadding;
+    //}
+
+    //Create staging buffer on cpu side
+    VkDeviceMemory TemporaryStagingBufferMem;
+    VkMemoryAllocateInfo MemoryAllocateInfo={0};
+    MemoryAllocateInfo.sType=VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    int32_t bestMemType=findBestMemoryType(vkRuntimeInfoP,ObjectToBeLoaded.stagingBuffers.PIUBufferMemoryRequirements.memoryTypeBits,
+                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,totalStagingPIUBufferSize);
+    if(bestMemType<0){
+        dprintf(DBGT_ERROR,"No memory on ram with the necessary size and attributes found");
+        exit(1);
+    }
+    MemoryAllocateInfo.memoryTypeIndex=(uint32_t)bestMemType;
+    MemoryAllocateInfo.allocationSize=totalStagingPIUBufferSize;
+    if(vkAllocateMemory(vkRuntimeInfoP->device,&MemoryAllocateInfo,NULL,&TemporaryStagingBufferMem)){
+        dprintf(DBGT_ERROR,"Could not allocate memory");
+        exit(1);
+    }
+    //TODO check if gpu has unified memory
+
+    //Calculate size requirements for device buffer on gpu side
+    VkDeviceSize totalDevicePIUBufferSize=0;
+    //for{
+    eng_IPUSizeCalc(vkRuntimeInfoP,&(ObjectToBeLoaded.deviceBuffers),VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    totalDevicePIUBufferSize+=ObjectToBeLoaded.deviceBuffers.TotalSizeWithPadding;
+    //}
+
+    //Create device buffer on gpu side
+    bestMemType=findBestMemoryType(vkRuntimeInfoP,ObjectToBeLoaded.deviceBuffers.PIUBufferMemoryRequirements.memoryTypeBits,
+                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,totalStagingPIUBufferSize);
+    if(bestMemType<0){
+        dprintf(DBGT_ERROR,"No memory on vram with the necessary size and attributes found");
+        exit(1);
+    }
+    MemoryAllocateInfo.memoryTypeIndex=(uint32_t)bestMemType;
+    MemoryAllocateInfo.allocationSize=totalDevicePIUBufferSize;
+    if(vkAllocateMemory(vkRuntimeInfoP->device,&MemoryAllocateInfo,NULL,&(vkRuntimeInfoP->StaticPINBuffer))){
+        dprintf(DBGT_ERROR,"Could not allocate memory");
+        exit(1);
+    }
+
+    //Move data into cpu side buffer
+    //Also setup binds for both cpu and gpu object buffers
+    uint32_t stagingBufferOffset=0;
+    uint32_t deviceBufferOffset=0;
+    //for ObjectToBeLoaded{
+        //Bind Memory To Buffers
+        vkBindBufferMemory(vkRuntimeInfoP->device,ObjectToBeLoaded.stagingBuffers.PIUBufferHandle,TemporaryStagingBufferMem,stagingBufferOffset);
+        vkBindBufferMemory(vkRuntimeInfoP->device,ObjectToBeLoaded.deviceBuffers.PIUBufferHandle,vkRuntimeInfoP->StaticPINBuffer,deviceBufferOffset);
+
+
+        void* mappedMemoryP;
+        //copy position data
+        vkMapMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem,stagingBufferOffset+0,ObjectToBeLoaded.stagingBuffers.PositionBufferSize,0,&mappedMemoryP);
+        for(uint32_t numberOfPosition=0;numberOfPosition<ObjectToBeLoaded.daeData.PositionsDlP->itemcnt/3;numberOfPosition++){
+            ((float*)mappedMemoryP)[numberOfPosition*4+0]=((float*)ObjectToBeLoaded.daeData.PositionsDlP->items)[numberOfPosition*3+0];
+            ((float*)mappedMemoryP)[numberOfPosition*4+1]=((float*)ObjectToBeLoaded.daeData.PositionsDlP->items)[numberOfPosition*3+1];
+            ((float*)mappedMemoryP)[numberOfPosition*4+2]=((float*)ObjectToBeLoaded.daeData.PositionsDlP->items)[numberOfPosition*3+2];
+            ((float*)mappedMemoryP)[numberOfPosition*4+3]=0.0f; //Vulkan requires Positions with vec3 to be padded to vec4
+        }
+        vkUnmapMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem);
+        //copy normal data
+        vkMapMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem,stagingBufferOffset+0,ObjectToBeLoaded.stagingBuffers.NormalBufferSize,0,&mappedMemoryP);
+        for(uint32_t numberOfNormal=0;numberOfNormal<ObjectToBeLoaded.daeData.NormalsDlP->itemcnt/3;numberOfNormal++){
+            ((float*)mappedMemoryP)[numberOfNormal*4+0]=((float*)ObjectToBeLoaded.daeData.NormalsDlP->items)[numberOfNormal*3+0];
+            ((float*)mappedMemoryP)[numberOfNormal*4+1]=((float*)ObjectToBeLoaded.daeData.NormalsDlP->items)[numberOfNormal*3+1];
+            ((float*)mappedMemoryP)[numberOfNormal*4+2]=((float*)ObjectToBeLoaded.daeData.NormalsDlP->items)[numberOfNormal*3+2];
+            ((float*)mappedMemoryP)[numberOfNormal*4+3]=0.0f; //Vulkan requires Normals with vec3 to be padded to vec4
+        }
+        vkUnmapMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem);
+        //copy combined index data
+        vkMapMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem,stagingBufferOffset+0,ObjectToBeLoaded.stagingBuffers.IndexBufferSize,0,&mappedMemoryP);
+        for(uint32_t numberOfIndex=0;numberOfIndex<ObjectToBeLoaded.daeData.PositionsAndNormalIndicesDlP->itemcnt/2;numberOfIndex++){
+            ((uint32_t*)mappedMemoryP)[numberOfIndex]=((uint64_t*)ObjectToBeLoaded.daeData.PositionsAndNormalIndicesDlP->items)[numberOfIndex*2+0];
+        }
+        //memcpy(mappedMemoryP,ObjectToBeLoaded.daeData.PositionsAndNormalIndicesDlP->items,ObjectToBeLoaded.daeData.PositionsAndNormalIndicesDlP->itemcnt*sizeof(uint32_t));
+        vkUnmapMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem);
+
+        stagingBufferOffset+=ObjectToBeLoaded.stagingBuffers.IndexBufferSize;
+        deviceBufferOffset+=ObjectToBeLoaded.deviceBuffers.IndexBufferSize;
+    //}
+
+    //
+    //schedule upload to gpu side
+    //
+
+    //create command buffer
+    VkCommandBuffer UploadCommandBuffer;
+    VkCommandBufferAllocateInfo CommandBufferAllocateInfo={0};
+    CommandBufferAllocateInfo.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    CommandBufferAllocateInfo.commandBufferCount=1;
+    CommandBufferAllocateInfo.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    CommandBufferAllocateInfo.commandPool=vkRuntimeInfoP->commandPool;
+    vkAllocateCommandBuffers(vkRuntimeInfoP->device,&CommandBufferAllocateInfo,&UploadCommandBuffer);
+    //start recording
+    VkCommandBufferBeginInfo CommandBufferBeginInfo={0};
+    CommandBufferBeginInfo.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    CommandBufferBeginInfo.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(UploadCommandBuffer,&CommandBufferBeginInfo);
+    //copy command for every object
+    VkBufferCopy copyRegion={0};
+
+
+    //for ObjectToBeLoaded{
+        //TODO check if the size of device local and cpu side buffer are equivalent
+        copyRegion.size=ObjectToBeLoaded.deviceBuffers.TotalSizeWithPadding;
+        vkCmdCopyBuffer(UploadCommandBuffer,ObjectToBeLoaded.stagingBuffers.PIUBufferHandle,ObjectToBeLoaded.deviceBuffers.PIUBufferHandle,1,&copyRegion);
+    //}
+    //end recording
+    vkEndCommandBuffer(UploadCommandBuffer);
+    //submit to gpu with no synchronisation
+    VkSubmitInfo SubmitInfo={0};
+    SubmitInfo.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    SubmitInfo.commandBufferCount=1;
+    SubmitInfo.pCommandBuffers=&UploadCommandBuffer;
+    vkQueueSubmit(vkRuntimeInfoP->graphics_queue,1,&SubmitInfo,VK_NULL_HANDLE);
+    vkQueueWaitIdle(vkRuntimeInfoP->graphics_queue);
+    vkFreeCommandBuffers(vkRuntimeInfoP->device,vkRuntimeInfoP->commandPool,1,&UploadCommandBuffer);
+    //for ObjectToBeLoaded{
+        vkDestroyBuffer(vkRuntimeInfoP->device,ObjectToBeLoaded.stagingBuffers.PIUBufferHandle,NULL);
+    //end recording
+    vkFreeMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem,NULL);
+
+
+}
 
 void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct xmlTreeElement* eng_setupxmlP){
     //get required information from xml object in memory
@@ -786,6 +1030,7 @@ void eng_createImageViews(struct VulkanRuntimeInfo* vkRuntimeInfoP){
         }
     }
 }
+
 void eng_createRenderPass(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     VkAttachmentDescription ColorAttachments={0};
     ColorAttachments.flags=0;
@@ -828,16 +1073,27 @@ void eng_createRenderPass(struct VulkanRuntimeInfo* vkRuntimeInfoP){
 }
 
 void eng_createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP){
+
+    VkVertexInputAttributeDescription InputAttributeDescription;
+    InputAttributeDescription.location=0;   //will be used for positions vec3 (location=0) in shader
+    InputAttributeDescription.binding=0;    //binding used to cross reference to the InputBindingDescription
+    InputAttributeDescription.format=VK_FORMAT_R32G32B32_SFLOAT;    //is equivalent to vec3
+    InputAttributeDescription.offset=0;     //positions are at the start of our static buffer
+
+    VkVertexInputBindingDescription InputBindingDescription;
+    InputBindingDescription.binding=0;  //binding used to cross reference to the InputAttributeDescription
+    InputBindingDescription.inputRate=VK_VERTEX_INPUT_RATE_INSTANCE;    //jump to next vertex for every new triangle in the index buffer, not every vertex
+    InputBindingDescription.stride=sizeof(float)*4;                     //stride is sizeof(vec4)
     //VertexInput
     VkPipelineVertexInputStateCreateInfo PipelineVertexInputStateInfo;
     PipelineVertexInputStateInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     PipelineVertexInputStateInfo.pNext=NULL;
     PipelineVertexInputStateInfo.flags=0;
-    PipelineVertexInputStateInfo.vertexAttributeDescriptionCount=0;
-    PipelineVertexInputStateInfo.vertexBindingDescriptionCount=0;
+    PipelineVertexInputStateInfo.vertexAttributeDescriptionCount=1;
+    PipelineVertexInputStateInfo.vertexBindingDescriptionCount=1;
     //needs to be set if we supply vertex buffers to our shader
-    PipelineVertexInputStateInfo.pVertexAttributeDescriptions=NULL;
-    PipelineVertexInputStateInfo.pVertexBindingDescriptions=NULL;
+    PipelineVertexInputStateInfo.pVertexAttributeDescriptions=&InputAttributeDescription;
+    PipelineVertexInputStateInfo.pVertexBindingDescriptions=&InputBindingDescription;
 
     VkPipelineInputAssemblyStateCreateInfo PipelineInputAssemblyInfo;
     PipelineInputAssemblyInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -1045,8 +1301,11 @@ void eng_createCommandBuffer(struct VulkanRuntimeInfo* vkRuntimeInfoP){
         RenderPassInfo.renderArea.offset.y=0;
         RenderPassInfo.renderPass=vkRuntimeInfoP->renderPass;
         vkCmdBeginRenderPass(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],&RenderPassInfo,VK_SUBPASS_CONTENTS_INLINE);
+        VkDeviceSize PIUBufferOffset=0;
+        vkCmdBindVertexBuffers(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],0,1,ObjectToBeLoaded.deviceBuffers.PIUBufferHandle,&PIUBufferOffset);
+        vkCmdBindIndexBuffer(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],ObjectToBeLoaded.deviceBuffers.PIUBufferHandle,&(ObjectToBeLoaded.deviceBuffers.PositionBufferSize),VK_INDEX_TYPE_UINT32);
         vkCmdBindPipeline(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],VK_PIPELINE_BIND_POINT_GRAPHICS,vkRuntimeInfoP->graphicsPipeline);
-        vkCmdDraw(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],3,1,0,0);
+        vkCmdDrawIndexed(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],ObjectToBeLoaded.deviceBuffers.IndexBufferSize,1,0,0,0);
         vkCmdEndRenderPass(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx]);
         vkEndCommandBuffer(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx]);
     }
@@ -1164,6 +1423,9 @@ int main(int argc, char** argv){
     eng_createImageViews(&engVkRuntimeInfo);
     eng_createShaderModule(&engVkRuntimeInfo,"./res/shader1.xml");
     eng_createRenderPass(&engVkRuntimeInfo);
+
+    eng_load_static_models(&engVkRuntimeInfo);
+
     eng_createGraphicsPipeline(&engVkRuntimeInfo);
     eng_createFramebuffers(&engVkRuntimeInfo);
     eng_createCommandBuffer(&engVkRuntimeInfo);

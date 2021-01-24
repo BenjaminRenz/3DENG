@@ -1,5 +1,5 @@
 # depslib dependency file v1.0
-1610650376 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
+1611457465 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
 	<stdio.h>
 	<stdlib.h>
 	<string.h>
@@ -19,7 +19,7 @@
 
 1605580341 /stringutils.h>
 
-1609961166 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.c
+1611457576 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.c
 	"stringutils.h"
 	"xmlReader.h"
 	<stdlib.h>
