@@ -47,6 +47,7 @@
 			<Add library="shaderc_util" />
 			<Add directory="C:/VulkanSDK/1.2.162.0/Lib" />
 		</Linker>
+		<Unit filename="inc/linmath.h" />
 		<Unit filename="main.c">
 			<Option compilerVar="CC" />
 		</Unit>

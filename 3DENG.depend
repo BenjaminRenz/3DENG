@@ -1,11 +1,12 @@
 # depslib dependency file v1.0
-1611457465 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
+1612150017 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
 	<stdio.h>
 	<stdlib.h>
 	<string.h>
 	<stdint.h>
 	"vulkan/vulkan.h"
 	"shaderc/shaderc.h"
+	"inc/linmath.h"
 	"submodules/glfw/glfw3.h"
 	"submodules/xmlReader/debug.h"
 	"submodules/xmlReader/xmlReader.h"
@@ -19,7 +20,7 @@
 
 1605580341 /stringutils.h>
 
-1611457576 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.c
+1612148878 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.c
 	"stringutils.h"
 	"xmlReader.h"
 	<stdlib.h>
@@ -30,12 +31,12 @@
 
 1605725052 
 
-1609698114 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.h
+1611513387 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.h
 	<stdarg.h>
 	<stddef.h>
 	<stdint.h>
 
-1609804290 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader.c
+1612148561 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader.c
 	<stdio.h>
 	<stdlib.h>
 	<stdarg.h>
@@ -190,4 +191,9 @@
 1607725366 c:\vulkansdk\1.2.162.0\include\\shaderc\status.h
 
 1607725366 c:\vulkansdk\1.2.162.0\include\\shaderc\visibility.h
+
+1611690284 c:\users\badmin\desktop\gitprojects\3deng\inc\linmath.h
+	<string.h>
+	<math.h>
+	<string.h>
 

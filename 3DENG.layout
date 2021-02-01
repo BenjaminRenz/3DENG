@@ -2,77 +2,62 @@
 <CodeBlocks_layout_file>
 	<FileVersion major="1" minor="0" />
 	<ActiveTarget name="Debug" />
-	<File name="res\kegel_ohne_camera.dae" open="1" top="0" tabpos="9" split="0" active="1" splitpos="0" zoom_1="6" zoom_2="0">
+	<File name="res\kegel_ohne_camera.dae" open="1" top="0" tabpos="13" split="0" active="1" splitpos="0" zoom_1="6" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="593" topLine="0" />
+			<Cursor1 position="800" topLine="0" />
 		</Cursor>
 	</File>
-	<File name="submodules\xmlReader\stringutils.h" open="1" top="0" tabpos="3" split="0" active="1" splitpos="0" zoom_1="8" zoom_2="0">
+	<File name="main.c" open="1" top="1" tabpos="8" split="0" active="1" splitpos="0" zoom_1="7" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="4860" topLine="0" />
+			<Cursor1 position="74936" topLine="1283" />
 		</Cursor>
-	</File>
-	<File name="res\vk_setup.xml" open="1" top="1" tabpos="1" split="0" active="1" splitpos="0" zoom_1="13" zoom_2="0">
-		<Cursor>
-			<Cursor1 position="19" topLine="0" />
-		</Cursor>
+		<Folding>
+			<Collapse line="20" />
+		</Folding>
 	</File>
 	<File name="submodules\xmlReader\xmlReader_matchHelper.h" open="1" top="0" tabpos="6" split="0" active="1" splitpos="0" zoom_1="16" zoom_2="0">
 		<Cursor>
 			<Cursor1 position="5345" topLine="76" />
 		</Cursor>
 	</File>
-	<File name="submodules\xmlReader\xmlReader.c" open="1" top="0" tabpos="5" split="0" active="1" splitpos="0" zoom_1="8" zoom_2="0">
+	<File name="inc\linmath.h" open="1" top="0" tabpos="9" split="0" active="1" splitpos="0" zoom_1="8" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="25443" topLine="398" />
+			<Cursor1 position="2812" topLine="90" />
 		</Cursor>
 	</File>
-	<File name="main.c" open="1" top="0" tabpos="8" split="0" active="1" splitpos="0" zoom_1="8" zoom_2="0">
+	<File name="submodules\xmlReader\stringutils.c" open="1" top="0" tabpos="4" split="0" active="1" splitpos="0" zoom_1="8" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="9591" topLine="51" />
+			<Cursor1 position="23228" topLine="460" />
 		</Cursor>
-		<Folding>
-			<Collapse line="20" />
-			<Collapse line="37" />
-			<Collapse line="43" />
-			<Collapse line="98" />
-			<Collapse line="106" />
-			<Collapse line="114" />
-			<Collapse line="180" />
-			<Collapse line="472" />
-			<Collapse line="615" />
-			<Collapse line="761" />
-			<Collapse line="837" />
-			<Collapse line="861" />
-			<Collapse line="884" />
-			<Collapse line="896" />
-			<Collapse line="905" />
-			<Collapse line="914" />
-			<Collapse line="921" />
-			<Collapse line="1006" />
-			<Collapse line="1033" />
-			<Collapse line="1074" />
-			<Collapse line="1244" />
-		</Folding>
 	</File>
 	<File name="submodules\xmlReader\debug.h" open="1" top="0" tabpos="7" split="0" active="1" splitpos="0" zoom_1="16" zoom_2="0">
 		<Cursor>
 			<Cursor1 position="708" topLine="0" />
 		</Cursor>
 	</File>
-	<File name="res\shader1.xml" open="0" top="0" tabpos="8" split="0" active="1" splitpos="0" zoom_1="19" zoom_2="0">
-		<Cursor>
-			<Cursor1 position="330" topLine="0" />
-		</Cursor>
-	</File>
-	<File name="submodules\xmlReader\stringutils.c" open="1" top="0" tabpos="4" split="0" active="1" splitpos="0" zoom_1="14" zoom_2="0">
-		<Cursor>
-			<Cursor1 position="22272" topLine="454" />
-		</Cursor>
-	</File>
 	<File name="submodules\xmlReader\xmlReader.h" open="1" top="0" tabpos="2" split="0" active="1" splitpos="0" zoom_1="12" zoom_2="0">
 		<Cursor>
 			<Cursor1 position="24" topLine="0" />
+		</Cursor>
+	</File>
+	<File name="res\vk_setup.xml" open="1" top="0" tabpos="1" split="0" active="1" splitpos="0" zoom_1="13" zoom_2="0">
+		<Cursor>
+			<Cursor1 position="19" topLine="0" />
+		</Cursor>
+	</File>
+	<File name="submodules\xmlReader\stringutils.h" open="1" top="0" tabpos="3" split="0" active="1" splitpos="0" zoom_1="8" zoom_2="0">
+		<Cursor>
+			<Cursor1 position="4870" topLine="0" />
+		</Cursor>
+	</File>
+	<File name="submodules\xmlReader\xmlReader.c" open="1" top="0" tabpos="5" split="0" active="1" splitpos="0" zoom_1="8" zoom_2="0">
+		<Cursor>
+			<Cursor1 position="5830" topLine="104" />
+		</Cursor>
+	</File>
+	<File name="res\shader1.xml" open="1" top="0" tabpos="10" split="0" active="1" splitpos="0" zoom_1="19" zoom_2="0">
+		<Cursor>
+			<Cursor1 position="268" topLine="0" />
 		</Cursor>
 	</File>
 </CodeBlocks_layout_file>
