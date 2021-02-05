@@ -5,12 +5,32 @@
 #define GLFW_INCLUDE_VULKAN
 #include "vulkan/vulkan.h"
 #include "shaderc/shaderc.h"
-#include "inc/linmath.h"
-#include "submodules/glfw/glfw3.h"
 
+#include "submodules/glfw/glfw3.h"
+#include "submodules/mathHelper/mathHelper.h"      //for countBitsInUint32
+#include "submodules/linmath/linmath.h"
 #include "submodules/xmlReader/debug.h"
 #include "submodules/xmlReader/xmlReader.h"
 #include "submodules/xmlReader/stringutils.h"
+
+
+#define CHK_VK(function)                                                \
+do {                                                                    \
+    uint32_t errorcode=function;                                        \
+    if(errorcode){                                                      \
+        printf("Error code %d occured in line %d\n",errorcode,__LINE__);\
+        exit(1);                                                        \
+    }                                                                   \
+} while (0)
+
+#define CHK_VK_ACK(function,action)                                     \
+do {                                                                    \
+    uint32_t errorcode=function;                                        \
+    if(errorcode){                                                      \
+        printf("Error code %d occured in line %d\n",errorcode,__LINE__);\
+        action;                                                         \
+    }                                                                   \
+} while (0)
 
 uint32_t eng_get_version_number_from_xmlemnt(struct xmlTreeElement* currentReqXmlP);
 uint32_t eng_get_version_number_from_UTF32DynlistP(struct DynamicList* inputStringP);
@@ -19,20 +39,18 @@ struct xmlTreeElement* eng_get_eng_setupxml(char* FilePath,int debug_enabled);
 
 
 struct DataFromDae{
-    struct DynamicList* PositionsDlP;
-    struct DynamicList* PositionsAndNormalIndicesDlP; //alternating, offset by 1
-    struct DynamicList* NormalsDlP;
+    struct DynamicList* CombinedPsNrUvDlP;
+    struct DynamicList* IndexingDlP;
 };
 
 struct eng3DPINBuffer{
     VkDeviceSize            TotalSizeWithPadding;
 
-    VkBuffer                PINBufferHandle;
-    VkMemoryRequirements    PINBufferMemoryRequirements;
+    VkBuffer                PNUIBufferHandle;
+    VkMemoryRequirements    PNUIBufferMemoryRequirements;
 
-    VkDeviceSize            PositionBufferSize;
-    VkDeviceSize            IndexBufferSize;        //combines position and normal indices for each face
-    VkDeviceSize            NormalBufferSize;
+    VkDeviceSize            PNUBufferSize;
+    VkDeviceSize            IndexBufferSize;        //combines position and normal indices for each vertex
 };
 
 struct eng3dObject{
@@ -88,7 +106,7 @@ struct VulkanRuntimeInfo{
 
     VkDescriptorPool descriptorPool;
     VkDescriptorSet* descriptorSetsP;
-    VkDescriptorSetLayout* descriptorSetLayoutsP;
+    VkDescriptorSetLayout* descriptorSetLayoutP;
 
     VkSemaphore* imageAvailableSemaphoreP;
     VkSemaphore* renderFinishedSemaphoreP;
@@ -100,28 +118,6 @@ struct VulkanRuntimeInfo{
 };
 
 struct eng3dObject ObjectToBeLoaded;
-
-
-
-uint32_t max_uint32_t(uint32_t a, uint32_t b){
-    if(a>b){
-        return a;
-    }else{
-        return b;
-    }
-}
-
-uint32_t min_uint32_t(uint32_t a, uint32_t b){
-    if(a<b){
-        return a;
-    }else{
-        return b;
-    }
-}
-
-uint32_t clamp_uint32_t(uint32_t lower_bound,uint32_t clampedValueInput,uint32_t upper_bound){
-    return max_uint32_t(min_uint32_t(upper_bound,clampedValueInput),lower_bound);
-}
 
 void eng_createShaderModule(struct VulkanRuntimeInfo* vkRuntimeInfoP,char* ShaderFileLocation){
     FILE* ShaderXmlFileP=fopen(ShaderFileLocation,"rb");
@@ -178,12 +174,12 @@ void eng_createShaderModule(struct VulkanRuntimeInfo* vkRuntimeInfoP,char* Shade
     ShaderModuleCreateInfo.flags=0;
     ShaderModuleCreateInfo.pCode=(uint32_t*)shaderc_result_get_bytes(compResultVertex);
     ShaderModuleCreateInfo.codeSize=shaderc_result_get_length(compResultVertex);
-    vkCreateShaderModule(vkRuntimeInfoP->device,&ShaderModuleCreateInfo,NULL,&(vkRuntimeInfoP->VertexShaderModule));
+    CHK_VK(vkCreateShaderModule(vkRuntimeInfoP->device,&ShaderModuleCreateInfo,NULL,&(vkRuntimeInfoP->VertexShaderModule)));
     //Recycle ShaderModuleCreateInfo
 
     ShaderModuleCreateInfo.pCode=(uint32_t*)shaderc_result_get_bytes(compResultFragment);
     ShaderModuleCreateInfo.codeSize=shaderc_result_get_length(compResultFragment);
-    vkCreateShaderModule(vkRuntimeInfoP->device,&ShaderModuleCreateInfo,NULL,&(vkRuntimeInfoP->FragmentShaderModule));
+    CHK_VK(vkCreateShaderModule(vkRuntimeInfoP->device,&ShaderModuleCreateInfo,NULL,&(vkRuntimeInfoP->FragmentShaderModule)));
 
     //shaderc_result_release(compResultVertex);
     //shaderc_result_release(compResultFragment);
@@ -202,73 +198,142 @@ void loadDaeObject(char* filePath,char* meshId,struct DataFromDae* outputDataP){
     //printXMLsubelements(xmlDaeRootP);
 
     struct xmlTreeElement* xmlColladaElementP=getNthChildElmntOrChardata(xmlDaeRootP,0);
-    struct xmlTreeElement* xmlLibGeoElementP=getFirstSubelementWith_freeArg234(xmlColladaElementP,Dl_utf32_fromString("library_geometries"),NULL,NULL,0,0);
-    struct xmlTreeElement* xmlGeoElementP=getFirstSubelementWith_freeArg234(xmlLibGeoElementP,Dl_utf32_fromString("geometry"),Dl_utf32_fromString("id"),DlDuplicate(sizeof(uint32_t),meshIdDlp),0,0); //does  not work?
+    struct xmlTreeElement* xmlLibGeoElementP=getFirstSubelementWithASCII(xmlColladaElementP,"library_geometries",NULL,NULL,0,0);
+    struct xmlTreeElement* xmlGeoElementP=getFirstSubelementWithASCII(xmlLibGeoElementP,"geometry","id",DlDuplicate(meshIdDlp),0,0); //does  not work?
     if(!xmlGeoElementP){
         dprintf(DBGT_ERROR,"The collada file does not contain a mesh with the name %s",meshId);
         exit(1);
     }
-    struct xmlTreeElement* xmlMeshElementP=getFirstSubelementWith_freeArg234(xmlGeoElementP,Dl_utf32_fromString("mesh"),NULL,NULL,0,0);
+    struct xmlTreeElement* xmlMeshElementP=getFirstSubelementWithASCII(xmlGeoElementP,"mesh",NULL,NULL,0,0);
 
-    //Get Triangles
-    struct xmlTreeElement* xmlTrianglesP=getFirstSubelementWith_freeArg234(xmlMeshElementP,Dl_utf32_fromString("triangles"),NULL,NULL,0,0);
-    struct DynamicList* TrianglesCountString=getValueFromKeyName_freeArg2(xmlTrianglesP->attributes,Dl_utf32_fromString("count"));
+    //Get triangles xml element
+    struct xmlTreeElement* xmlTrianglesP=getFirstSubelementWithASCII(xmlMeshElementP,"triangles",NULL,NULL,0,0);
+    struct DynamicList* TrianglesCountString=getValueFromKeyNameASCII(xmlTrianglesP->attributes,"count");
     struct DynamicList* TrianglesCount=Dl_utf32_to_Dl_int64_freeArg1(Dl_CMatch_create(2,' ',' '),TrianglesCountString);
     dprintf(DBGT_INFO,"Model has %lld triangles",((int64_t*)TrianglesCount->items)[0]);
 
-    struct xmlTreeElement* xmlTrianglesOrderP=getFirstSubelementWith_freeArg234(xmlTrianglesP,Dl_utf32_fromString("p"),NULL,NULL,0,0);
+    //get triangle position, normal, uv index list
+    struct xmlTreeElement* xmlTrianglesOrderP=getFirstSubelementWithASCII(xmlTrianglesP,"p",NULL,NULL,0,0);
     if(!xmlTrianglesOrderP){
         dprintf(DBGT_ERROR,"No Triangles Order list found");exit(1);
     }
-    printXMLsubelements(xmlTrianglesOrderP);
-    struct xmlTreeElement* xmlTrianglesOrderContentP=getNthChildElmntOrChardata(xmlTrianglesOrderP,0);   //TODO does not work because getNthSubelement only considers non chardata elements...
+    struct xmlTreeElement* xmlTrianglesOrderContentP=getNthChildElmntOrChardata(xmlTrianglesOrderP,0);
     if(!xmlTrianglesOrderContentP->content->itemcnt){
         dprintf(DBGT_ERROR,"Triangles Order List empty");exit(1);
     }
-    outputDataP->PositionsAndNormalIndicesDlP=Dl_utf32_to_Dl_int64_freeArg1(Dl_CMatch_create(2,' ',' '),xmlTrianglesOrderContentP->content);
-    dprintf(DBGT_INFO,"Found Triangle order list with %d entries",outputDataP->PositionsAndNormalIndicesDlP->itemcnt);
+    struct DynamicList* TempTriangleIndexDlP=Dl_utf32_to_Dl_int64_freeArg1(Dl_CMatch_create(2,' ',' '),xmlTrianglesOrderContentP->content);
 
-    //Get Normals
-    struct xmlTreeElement* xmlNormalsSourceP=getFirstSubelementWith_freeArg234(xmlMeshElementP,Dl_utf32_fromString("source"),
-                                                                                                Dl_utf32_fromString("id"),
-                                                                                                DlCombine_freeArg3(sizeof(uint32_t),meshIdDlp,Dl_utf32_fromString("-normals")),
-                                                                                                0,0);
-    struct xmlTreeElement* xmlNormalsFloatP=getFirstSubelementWith_freeArg234(xmlNormalsSourceP,Dl_utf32_fromString("float_array"),
-                                                                                                Dl_utf32_fromString("id"),
-                                                                                                DlCombine_freeArg3(sizeof(uint32_t),meshIdDlp,Dl_utf32_fromString("-normals-array")),
-                                                                                                0,0);
-    struct DynamicList* NormalsCountString=getValueFromKeyName_freeArg2(xmlNormalsFloatP->attributes,Dl_utf32_fromString("count"));
-    Dl_utf32_print(NormalsCountString);
-    struct DynamicList* NormalsCount=Dl_utf32_to_Dl_int64_freeArg1(Dl_CMatch_create(2,' ',' '),NormalsCountString);
-    dprintf(DBGT_INFO,"Model has count %lld normal coordinates",((int64_t*)NormalsCount->items)[0]);
-    struct xmlTreeElement* xmlNormalsFloatContentP=getNthChildElmntOrChardata(xmlNormalsFloatP,0);
-    outputDataP->NormalsDlP=Dl_utf32_to_Dl_float_freeArg123(Dl_CMatch_create(4,' ',' ','\t','\t'),Dl_CMatch_create(4,'e','e','E','E'),Dl_CMatch_create(2,'.','.'),xmlNormalsFloatContentP->content);
-    dprintf(DBGT_INFO,"Model has %d normal coordinates",outputDataP->NormalsDlP->itemcnt);
+    //Define structures to copy read data to
+    struct DynamicList* PosDlP;
+    struct DynamicList* PosIndexDlP;
+    struct DynamicList* NormDlP;
+    struct DynamicList* NormIndexDlP;
+    struct DynamicList* UvDlP;
+    struct DynamicList* UvIndexDlP;
 
-    //Get Positions
-    struct xmlTreeElement* xmlPositionsSourceP=getFirstSubelementWith_freeArg234(xmlMeshElementP,Dl_utf32_fromString("source"),
-                                                                     Dl_utf32_fromString("id"),DlCombine_freeArg3(sizeof(uint32_t),meshIdDlp,Dl_utf32_fromString("-positions")),0,0);
+    //Get input accessor and position,vertex,normal source
+    struct DynamicList* InputXmlTrianglesP=getAllSubelementsWithASCII(xmlTrianglesP,"input",NULL,NULL,0,0);
+    for(uint32_t inputsemantic=0;inputsemantic<InputXmlTrianglesP->itemcnt;inputsemantic++){
+        struct DynamicList* semanticStringDlP=getValueFromKeyNameASCII(((struct xmlTreeElement**)(InputXmlTrianglesP->items))[inputsemantic]->attributes,"semantic");
+        struct DynamicList* offsetStringDlP=getValueFromKeyNameASCII(((struct xmlTreeElement**)InputXmlTrianglesP->items)[inputsemantic]->attributes,"offset");
+        struct DynamicList* offsetNumbersDlP=Dl_utf32_to_Dl_int64(Dl_CMatch_create(2,' ',' '),offsetStringDlP);
+        struct DynamicList* sourceStringWithHashtagDlP=getValueFromKeyNameASCII(((struct xmlTreeElement**)InputXmlTrianglesP->items)[inputsemantic]->attributes,"source");
+        struct DynamicList* sourceStringDlP=Dl_utf32_Substring(sourceStringWithHashtagDlP,1,-1);
+        //get corresponding source data
+        struct xmlTreeElement* refXmlElmntP=getFirstSubelementWithASCII(xmlMeshElementP,NULL,"id",sourceStringDlP,0,0);
+        //Handle VERTEX special case, which has to jump to POSITIONS again
+        struct xmlTreeElement* sourceXmlElmntP;
+        if(Dl_utf32_compareEqual_freeArg2(refXmlElmntP->name,Dl_utf32_fromString("vertices"))){
+            refXmlElmntP=getFirstSubelementWithASCII(refXmlElmntP,"input",NULL,NULL,0,0);
+            sourceStringWithHashtagDlP=getValueFromKeyNameASCII(refXmlElmntP->attributes,"source");
+            sourceStringDlP=Dl_utf32_Substring(sourceStringWithHashtagDlP,1,-1);
+            sourceXmlElmntP=getFirstSubelementWithASCII(xmlMeshElementP,NULL,"id",sourceStringDlP,0,0);
+        }else{
+            sourceXmlElmntP=refXmlElmntP;
+        }
+        struct xmlTreeElement* floatArrayXmlElementP=getFirstSubelementWithASCII(sourceXmlElmntP,"float_array",NULL,NULL,0,1);
+        struct xmlTreeElement* floatArrayCharDataP=getFirstSubelementWith(floatArrayXmlElementP,NULL,NULL,NULL,xmltype_chardata,1);
+        struct DynamicList* sourceFloatArrayDlP=Dl_utf32_to_Dl_float_freeArg123(Dl_CMatch_create(2,' ',' '),Dl_CMatch_create(4,'e','e','E','E'),Dl_CMatch_create(4,'.','.',',',','),floatArrayCharDataP->content);
+        //check if FloatArray length corresponds with the expected count specified in the xml file
+        struct DynamicList* countStringDlP=getValueFromKeyNameASCII(floatArrayXmlElementP->attributes,"count");
+        struct DynamicList* countIntArrayDlP=Dl_utf32_to_Dl_int64_freeArg1(Dl_CMatch_create(2,' ',' '),countStringDlP);
+        if(((int64_t*)countIntArrayDlP->items)[0]!=sourceFloatArrayDlP->itemcnt){
+            dprintf(DBGT_ERROR,"Missmatch in supplied source float count, count says %lld, found were %d",((int64_t*)countIntArrayDlP)[0],sourceFloatArrayDlP->itemcnt);
+        }
 
-    struct xmlTreeElement* xmlPositionsFloatP=getFirstSubelementWith_freeArg234(xmlPositionsSourceP,Dl_utf32_fromString("float_array"),
-                                                                    Dl_utf32_fromString("id"),DlCombine_freeArg3(sizeof(uint32_t),meshIdDlp,Dl_utf32_fromString("-positions-array")),0,0);
+        uint32_t offsetInIdxArray=((int64_t*)(offsetNumbersDlP->items))[0];
+        DlDelete(offsetNumbersDlP);
+        uint32_t stridePerVertex=InputXmlTrianglesP->itemcnt;
+        uint32_t numberOfAllIndices=TempTriangleIndexDlP->itemcnt;
+        uint32_t numberOfVertexIndices=numberOfAllIndices/stridePerVertex;
+        struct DynamicList* CurrentOutputArrayDlP=0;
+        if(Dl_utf32_compareEqual_freeArg2(semanticStringDlP,Dl_utf32_fromString("VERTEX"))){
+            //Create and fill PosIndexDlP
+            PosIndexDlP=DlAlloc(sizeof(uint32_t),DlType_int32,numberOfVertexIndices,NULL);
+            CurrentOutputArrayDlP=PosIndexDlP;
+            PosDlP=sourceFloatArrayDlP;
+        }else if(Dl_utf32_compareEqual_freeArg2(semanticStringDlP,Dl_utf32_fromString("NORMAL"))){
+            //Create and fill NormIndexDlP
+            NormIndexDlP=DlAlloc(sizeof(uint32_t),DlType_int32,numberOfVertexIndices,NULL);
+            CurrentOutputArrayDlP=NormIndexDlP;
+            NormDlP=sourceFloatArrayDlP;
+        }else if(Dl_utf32_compareEqual_freeArg2(semanticStringDlP,Dl_utf32_fromString("TEXCOORD"))){
+            //Create and fill UvIndexDlP
+            UvIndexDlP=DlAlloc(sizeof(uint32_t),DlType_int32,numberOfVertexIndices,NULL);
+            CurrentOutputArrayDlP=UvIndexDlP;
+            UvDlP=sourceFloatArrayDlP;
+        }else{
+            dprintf(DBGT_ERROR,"Unknown semantic type");
+            exit(1);
+        }
+        for(uint32_t IdxInIndexArray=0;IdxInIndexArray<numberOfVertexIndices;IdxInIndexArray++){
+            ((int32_t*)(CurrentOutputArrayDlP->items))[IdxInIndexArray]=((int64_t*)(TempTriangleIndexDlP->items))[stridePerVertex*IdxInIndexArray+offsetInIdxArray];
+        }
+    }
 
-    struct DynamicList* PositionsCountString=getValueFromKeyName_freeArg2(xmlPositionsFloatP->attributes,Dl_utf32_fromString("count"));
-    struct DynamicList* PositionsCount=Dl_utf32_to_Dl_int64_freeArg1(Dl_CMatch_create(2,' ',' '),PositionsCountString);
-    //if(xmlPositionsFloatP->content->type!=dynlisttype_utf32chars){dprintf(DBGT_ERROR,"Invalid content type");return 0;}
-    struct xmlTreeElement* xmlPositionsFloatContentP=getNthChildElmntOrChardata(xmlPositionsFloatP,0);
-    outputDataP->PositionsDlP=Dl_utf32_to_Dl_float_freeArg123(Dl_CMatch_create(4,' ',' ','\t','\t'),Dl_CMatch_create(4,'e','e','E','E'),Dl_CMatch_create(2,'.','.'),xmlPositionsFloatContentP->content);
-
-    //TODO Remove xml from memory
-}
-
-uint32_t countBitsInUint32(uint32_t input){
-    //add subbits in increasing bin sizes (bit0+bit1),(bit2+bit3),...
-    input=(input&0x55555555)+((input>>1)&0x55555555);
-    input=(input&0x33333333)+((input>>2)&0x33333333);
-    input=(input&0x0f0f0f0f)+((input>>4)&0x0f0f0f0f);
-    input=(input&0x00ff00ff)+((input>>8)&0x00ff00ff);
-    input=(input&0x0000ffff)+(input>>16);
-    return input;
+    //Since vulkan does not support individual index buffers we need to list vertices and combine only the one with the same position& normal& uv
+    //DataBuffer will be layed out like vec4 pos; vec4 norm; vec2 UV; ...
+    struct DynamicList* CombinedPsNrUvDlP=DlAlloc(sizeof(float),DlType_float,(4+4+2)*PosIndexDlP->itemcnt,NULL);
+    struct DynamicList* NewIndexBuffer=DlAlloc(sizeof(uint32_t),DlType_uint32,PosIndexDlP->itemcnt,NULL);
+    uint32_t uniqueVertices=0;
+    for(uint32_t vertex=0;vertex<PosIndexDlP->itemcnt;vertex++){
+        uint32_t posIdx= ((uint32_t*)PosIndexDlP->items) [vertex];
+        uint32_t normIdx=((uint32_t*)NormIndexDlP->items)[vertex];
+        uint32_t uvIdx=  ((uint32_t*)UvIndexDlP->items)  [vertex];
+        uint32_t testUniqueVertex;
+        for(testUniqueVertex=0;testUniqueVertex<uniqueVertices;testUniqueVertex++){
+            //Compare new vertex read from PosDlP, NormDlP and UvDlP with already read vertices in CombinedPsNrUvDlP
+            if(   ((float*)PosDlP->items) [3*vertex  ]==((float*)CombinedPsNrUvDlP->items)[10*testUniqueVertex  ]
+                &&((float*)PosDlP->items) [3*vertex+1]==((float*)CombinedPsNrUvDlP->items)[10*testUniqueVertex+1]
+                &&((float*)PosDlP->items) [3*vertex+2]==((float*)CombinedPsNrUvDlP->items)[10*testUniqueVertex+2]
+                &&((float*)NormDlP->items)[3*vertex  ]==((float*)CombinedPsNrUvDlP->items)[10*testUniqueVertex+4]
+                &&((float*)NormDlP->items)[3*vertex+1]==((float*)CombinedPsNrUvDlP->items)[10*testUniqueVertex+5]
+                &&((float*)NormDlP->items)[3*vertex+2]==((float*)CombinedPsNrUvDlP->items)[10*testUniqueVertex+6]
+                &&((float*)UvDlP->items)  [3*vertex]  ==((float*)CombinedPsNrUvDlP->items)[10*testUniqueVertex+8]
+                &&((float*)UvDlP->items)  [3*vertex+1]==((float*)CombinedPsNrUvDlP->items)[10*testUniqueVertex+9]){
+                break;
+            }
+        }
+        //
+        ((uint32_t*)NewIndexBuffer->items)[uniqueVertices]=testUniqueVertex;
+        //for loop terminated prematurely and we have found a duplicate vertex
+        if(testUniqueVertex==uniqueVertices){
+            //Add vertex into combined buffer with padding
+            ((float*)CombinedPsNrUvDlP->items)[10*uniqueVertices  ]=((float*)PosDlP->items) [3*vertex  ];
+            ((float*)CombinedPsNrUvDlP->items)[10*uniqueVertices+1]=((float*)PosDlP->items) [3*vertex+1];
+            ((float*)CombinedPsNrUvDlP->items)[10*uniqueVertices+2]=((float*)PosDlP->items) [3*vertex+2];
+            ((float*)CombinedPsNrUvDlP->items)[10*uniqueVertices+4]=((float*)NormDlP->items)[3*vertex  ];
+            ((float*)CombinedPsNrUvDlP->items)[10*uniqueVertices+5]=((float*)NormDlP->items)[3*vertex+1];
+            ((float*)CombinedPsNrUvDlP->items)[10*uniqueVertices+6]=((float*)NormDlP->items)[3*vertex+2];
+            ((float*)CombinedPsNrUvDlP->items)[10*uniqueVertices+8]=((float*)UvDlP->items)  [3*vertex  ];
+            ((float*)CombinedPsNrUvDlP->items)[10*uniqueVertices+9]=((float*)UvDlP->items)  [3*vertex+1];
+            uniqueVertices++;
+        }
+    }
+    DlResize(&CombinedPsNrUvDlP,10*uniqueVertices);  //Discard preallocated data which has been left empty because of dulplicat vertices
+    DlResize(&NewIndexBuffer,uniqueVertices);
+    outputDataP->CombinedPsNrUvDlP=CombinedPsNrUvDlP;
+    outputDataP->IndexingDlP=NewIndexBuffer;
 }
 
 //ToDo do actual memory usage calculations for each heap
@@ -323,25 +388,27 @@ void eng_ceatePINBufferAndCalcSize(struct VulkanRuntimeInfo* vkRuntimeInfoP,stru
 
     //Create combined Position-, Buffer
     BufferInfo.size=
-        PINBuffersP->PositionBufferSize+
-        PINBuffersP->NormalBufferSize+
+        PINBuffersP->PNUBufferSize+
         PINBuffersP->IndexBufferSize;
 
-    if(vkCreateBuffer(vkRuntimeInfoP->device,&BufferInfo,NULL,&(PINBuffersP->PINBufferHandle))){
-        dprintf(DBGT_ERROR,"Could not create buffer");
-        exit(1);
-    }
+    CHK_VK(vkCreateBuffer(vkRuntimeInfoP->device,&BufferInfo,NULL,&(PINBuffersP->PNUIBufferHandle)));
     //get memory requirements
-    vkGetBufferMemoryRequirements(vkRuntimeInfoP->device,PINBuffersP->PINBufferHandle,&(PINBuffersP->PINBufferMemoryRequirements));
+    vkGetBufferMemoryRequirements(vkRuntimeInfoP->device,PINBuffersP->PNUIBufferHandle,&(PINBuffersP->PNUIBufferMemoryRequirements));
     //Check if already aligned
-    if((PINBuffersP->PINBufferMemoryRequirements.size)%(PINBuffersP->PINBufferMemoryRequirements.alignment)){
+    if((PINBuffersP->PNUIBufferMemoryRequirements.size)%(PINBuffersP->PNUIBufferMemoryRequirements.alignment)){
         //calculate multiples of alignment
-        PINBuffersP->TotalSizeWithPadding=((PINBuffersP->PINBufferMemoryRequirements.size/PINBuffersP->PINBufferMemoryRequirements.alignment)+1);
-        PINBuffersP->TotalSizeWithPadding*=PINBuffersP->PINBufferMemoryRequirements.alignment;
+        PINBuffersP->TotalSizeWithPadding=((PINBuffersP->PNUIBufferMemoryRequirements.size/PINBuffersP->PNUIBufferMemoryRequirements.alignment)+1);
+        PINBuffersP->TotalSizeWithPadding*=PINBuffersP->PNUIBufferMemoryRequirements.alignment;
     }else{
-        PINBuffersP->TotalSizeWithPadding=PINBuffersP->PINBufferMemoryRequirements.size;
+        PINBuffersP->TotalSizeWithPadding=PINBuffersP->PNUIBufferMemoryRequirements.size;
     }
 }
+
+/*void paddAlign(void* inputDataP, void* outputDataP, uint32_t numberOfChunks, size_t sizeOfChunk, size_t sizeOfAlignedChunk){
+    for(uint32_t elementIdx=0;elementIdx<numberOfChunks;elementIdx++){
+        memcpy(((char*)outputDataP)+elementIdx*sizeOfAlignedChunk,((char*)inputDataP)+elementIdx*sizeOfChunk,sizeOfChunk);
+    }
+}*/
 
 void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     //Iterate over dae files and get number of vertices/indices and calculate their size
@@ -351,10 +418,8 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     //TODO add for loop over all models we wish to load
     //struct eng3dObject ObjectToBeLoaded;    TODO remove this global hack
     loadDaeObject("./res/kegel_ohne_camera.dae","Cylinder-mesh",&(ObjectToBeLoaded.daeData));
-    ObjectToBeLoaded.stagingBuffers.PositionBufferSize=     ((ObjectToBeLoaded.daeData.PositionsDlP->itemcnt        *sizeof(float))/3)*4; //multidimensional vectors need to be aligned to N,2N or 4N of element size
-    ObjectToBeLoaded.stagingBuffers.IndexBufferSize=((ObjectToBeLoaded.daeData.PositionsAndNormalIndicesDlP->itemcnt*sizeof(uint32_t))/2); //only every second index is for the positions
-    ObjectToBeLoaded.stagingBuffers.NormalBufferSize=       ((ObjectToBeLoaded.daeData.NormalsDlP->itemcnt          *sizeof(float))/3)*4;          //multidimensional vectors need to be aligned to N,2N or 4N of element size
-
+    ObjectToBeLoaded.stagingBuffers.IndexBufferSize=(ObjectToBeLoaded.daeData.IndexingDlP->itemcnt*sizeof(uint32_t));
+    ObjectToBeLoaded.stagingBuffers.PNUBufferSize  =(ObjectToBeLoaded.daeData.CombinedPsNrUvDlP->itemcnt*sizeof(float));
 
     //
     //Setup Uniform Buffer
@@ -367,7 +432,7 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     UniformBufferCreateInfo.sharingMode=VK_SHARING_MODE_EXCLUSIVE;
     UniformBufferCreateInfo.usage=VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     UniformBufferCreateInfo.size=sizeof(mat4x4)*vkRuntimeInfoP->imagesInFlightCount; //ToDo support per object mvp matrices
-    vkCreateBuffer(vkRuntimeInfoP->device,&UniformBufferCreateInfo,NULL,&vkRuntimeInfoP->UniformBufferHandle);
+    CHK_VK(vkCreateBuffer(vkRuntimeInfoP->device,&UniformBufferCreateInfo,NULL,&vkRuntimeInfoP->UniformBufferHandle));
     //Get Memory Requirements
     VkMemoryRequirements UniformBufferMemoryRequirements;
     vkGetBufferMemoryRequirements(vkRuntimeInfoP->device,vkRuntimeInfoP->UniformBufferHandle,&UniformBufferMemoryRequirements);
@@ -385,16 +450,13 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     UniformBufferAllocateInfo.memoryTypeIndex=findBestMemoryType(vkRuntimeInfoP,
                                                                  ~UniformBufferMemoryRequirements.memoryTypeBits,
                                                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-                                                                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                                                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT|VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                                                                  NULL,
                                                                  UniformBufferMemorySizeWithPadding);
-    if(vkAllocateMemory(vkRuntimeInfoP->device,&UniformBufferAllocateInfo,NULL,&(vkRuntimeInfoP->UniformBufferMemory))){
-        dprintf(DBGT_ERROR,"Error could not allocate memory for uniform buffer, probably out of ram");
-        exit(1);
-    }
+    CHK_VK(vkAllocateMemory(vkRuntimeInfoP->device,&UniformBufferAllocateInfo,NULL,&(vkRuntimeInfoP->UniformBufferMemory)));
 
     //Bind the buffer handle to memory
-    vkBindBufferMemory(vkRuntimeInfoP->device,vkRuntimeInfoP->UniformBufferHandle,vkRuntimeInfoP->UniformBufferMemory,0);
+    CHK_VK(vkBindBufferMemory(vkRuntimeInfoP->device,vkRuntimeInfoP->UniformBufferHandle,vkRuntimeInfoP->UniformBufferMemory,0));
 
 
     //Calculate size requirements for staging buffer on cpu side
@@ -407,26 +469,22 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     VkDeviceMemory TemporaryStagingBufferMem;
     VkMemoryAllocateInfo MemoryAllocateInfo={0};
     MemoryAllocateInfo.sType=VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    dprintf(DBGT_INFO,"Supported memory types for temporary staging buffer %x",ObjectToBeLoaded.stagingBuffers.PINBufferMemoryRequirements.memoryTypeBits);
+    dprintf(DBGT_INFO,"Supported memory types for temporary staging buffer %x",ObjectToBeLoaded.stagingBuffers.PNUIBufferMemoryRequirements.memoryTypeBits);
     //TODO parse the return to check if we the memory for the device is directly host accessible
     int32_t bestMemType=findBestMemoryType(vkRuntimeInfoP,
-                                           ~ObjectToBeLoaded.stagingBuffers.PINBufferMemoryRequirements.memoryTypeBits, //forbidden
+                                           ~ObjectToBeLoaded.stagingBuffers.PNUIBufferMemoryRequirements.memoryTypeBits, //forbidden
                                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,                                         //required
                                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,                                         //uprank
                                            NULL,                                                                        //return
-                                           ObjectToBeLoaded.stagingBuffers.PINBufferMemoryRequirements.size);           //size
+                                           ObjectToBeLoaded.stagingBuffers.PNUIBufferMemoryRequirements.size);           //size
     MemoryAllocateInfo.memoryTypeIndex=(uint32_t)bestMemType;
     MemoryAllocateInfo.allocationSize=totalStagingPIUBufferSize;
-    if(vkAllocateMemory(vkRuntimeInfoP->device,&MemoryAllocateInfo,NULL,&TemporaryStagingBufferMem)){
-        dprintf(DBGT_ERROR,"Could not allocate memory");
-        exit(1);
-    }
+    CHK_VK(vkAllocateMemory(vkRuntimeInfoP->device,&MemoryAllocateInfo,NULL,&TemporaryStagingBufferMem));
+    CHK_VK(vkBindBufferMemory(vkRuntimeInfoP->device,ObjectToBeLoaded.stagingBuffers.PNUIBufferHandle,TemporaryStagingBufferMem,0));
     //TODO check if gpu has unified memory
 
-    ObjectToBeLoaded.deviceBuffers.PositionBufferSize=ObjectToBeLoaded.stagingBuffers.PositionBufferSize;
     ObjectToBeLoaded.deviceBuffers.IndexBufferSize=ObjectToBeLoaded.stagingBuffers.IndexBufferSize;
-    ObjectToBeLoaded.deviceBuffers.NormalBufferSize=ObjectToBeLoaded.stagingBuffers.NormalBufferSize;
-
+    ObjectToBeLoaded.deviceBuffers.PNUBufferSize=ObjectToBeLoaded.stagingBuffers.PNUBufferSize;
     //Calculate size requirements for device buffer on gpu side
     VkDeviceSize totalDevicePIUBufferSize=0;
     //for{
@@ -436,7 +494,7 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP){
 
     //Create device buffer on gpu side
     bestMemType=findBestMemoryType(vkRuntimeInfoP,
-                                   ~ObjectToBeLoaded.deviceBuffers.PINBufferMemoryRequirements.memoryTypeBits,
+                                   ~ObjectToBeLoaded.deviceBuffers.PNUIBufferMemoryRequirements.memoryTypeBits,
                                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                                    0,
                                    NULL,
@@ -447,47 +505,25 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     }
     MemoryAllocateInfo.memoryTypeIndex=(uint32_t)bestMemType;
     MemoryAllocateInfo.allocationSize=totalDevicePIUBufferSize;
-    if(vkAllocateMemory(vkRuntimeInfoP->device,&MemoryAllocateInfo,NULL,&(vkRuntimeInfoP->StaticPINBufferMemory))){
-        dprintf(DBGT_ERROR,"Could not allocate memory");
-        exit(1);
-    }
+    CHK_VK(vkAllocateMemory(vkRuntimeInfoP->device,&MemoryAllocateInfo,NULL,&(vkRuntimeInfoP->StaticPINBufferMemory)));
+    CHK_VK(vkBindBufferMemory(vkRuntimeInfoP->device,ObjectToBeLoaded.deviceBuffers.PNUIBufferHandle,vkRuntimeInfoP->StaticPINBufferMemory,0));
+
 
     //Move data into cpu side buffer
     //Also setup binds for both cpu and gpu object buffers
     //for ObjectToBeLoaded{
         //Bind Memory To Buffers
-        vkBindBufferMemory(vkRuntimeInfoP->device,ObjectToBeLoaded.stagingBuffers.PINBufferHandle,TemporaryStagingBufferMem,0);
-        dprintf(DBGT_INFO,"Id of Staging Buffer %x",TemporaryStagingBufferMem);
-        vkBindBufferMemory(vkRuntimeInfoP->device,ObjectToBeLoaded.deviceBuffers.PINBufferHandle,vkRuntimeInfoP->StaticPINBufferMemory,0);
-
-
         void* mappedMemoryP;
-        //copy position data
-        vkMapMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem,0,ObjectToBeLoaded.stagingBuffers.PositionBufferSize,0,&mappedMemoryP);
-        for(uint32_t numberOfPosition=0;numberOfPosition<ObjectToBeLoaded.daeData.PositionsDlP->itemcnt/3;numberOfPosition++){
-            ((float*)mappedMemoryP)[numberOfPosition*4+0]=((float*)ObjectToBeLoaded.daeData.PositionsDlP->items)[numberOfPosition*3+0];
-            ((float*)mappedMemoryP)[numberOfPosition*4+1]=((float*)ObjectToBeLoaded.daeData.PositionsDlP->items)[numberOfPosition*3+1];
-            ((float*)mappedMemoryP)[numberOfPosition*4+2]=((float*)ObjectToBeLoaded.daeData.PositionsDlP->items)[numberOfPosition*3+2];
-            ((float*)mappedMemoryP)[numberOfPosition*4+3]=0.0f; //Vulkan requires Positions with vec3 to be padded to vec4
-        }
+        //copy position,normal,uv data
+        CHK_VK(vkMapMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem,0,ObjectToBeLoaded.stagingBuffers.PNUBufferSize,0,&mappedMemoryP));
+        memcpy(mappedMemoryP,ObjectToBeLoaded.daeData.CombinedPsNrUvDlP->items,ObjectToBeLoaded.daeData.CombinedPsNrUvDlP->itemcnt*sizeof(float));
         vkUnmapMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem);
+        DlDelete(ObjectToBeLoaded.daeData.CombinedPsNrUvDlP);
         //copy combined index data
-        vkMapMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem,ObjectToBeLoaded.stagingBuffers.PositionBufferSize,ObjectToBeLoaded.stagingBuffers.IndexBufferSize,0,&mappedMemoryP);
-        for(uint32_t numberOfIndex=0;numberOfIndex<ObjectToBeLoaded.daeData.PositionsAndNormalIndicesDlP->itemcnt/2;numberOfIndex++){
-            ((uint32_t*)mappedMemoryP)[numberOfIndex]=((uint64_t*)ObjectToBeLoaded.daeData.PositionsAndNormalIndicesDlP->items)[numberOfIndex*2+0];
-        }
+        CHK_VK(vkMapMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem,ObjectToBeLoaded.stagingBuffers.PNUBufferSize,ObjectToBeLoaded.stagingBuffers.IndexBufferSize,0,&mappedMemoryP));
+        memcpy(mappedMemoryP,ObjectToBeLoaded.daeData.IndexingDlP->items,ObjectToBeLoaded.daeData.IndexingDlP->itemcnt*sizeof(uint32_t));
         vkUnmapMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem);
         //copy normal data
-        vkMapMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem,ObjectToBeLoaded.stagingBuffers.PositionBufferSize+ObjectToBeLoaded.stagingBuffers.IndexBufferSize,ObjectToBeLoaded.stagingBuffers.NormalBufferSize,0,&mappedMemoryP);
-        for(uint32_t numberOfNormal=0;numberOfNormal<ObjectToBeLoaded.daeData.NormalsDlP->itemcnt/3;numberOfNormal++){
-            ((float*)mappedMemoryP)[numberOfNormal*4+0]=((float*)ObjectToBeLoaded.daeData.NormalsDlP->items)[numberOfNormal*3+0];
-            ((float*)mappedMemoryP)[numberOfNormal*4+1]=((float*)ObjectToBeLoaded.daeData.NormalsDlP->items)[numberOfNormal*3+1];
-            ((float*)mappedMemoryP)[numberOfNormal*4+2]=((float*)ObjectToBeLoaded.daeData.NormalsDlP->items)[numberOfNormal*3+2];
-            ((float*)mappedMemoryP)[numberOfNormal*4+3]=0.0f; //Vulkan requires Normals with vec3 to be padded to vec4
-        }
-        vkUnmapMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem);
-
-
     //}
 
     //
@@ -501,20 +537,20 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     CommandBufferAllocateInfo.commandBufferCount=1;
     CommandBufferAllocateInfo.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     CommandBufferAllocateInfo.commandPool=vkRuntimeInfoP->commandPool;
-    vkAllocateCommandBuffers(vkRuntimeInfoP->device,&CommandBufferAllocateInfo,&UploadCommandBuffer);
+    CHK_VK(vkAllocateCommandBuffers(vkRuntimeInfoP->device,&CommandBufferAllocateInfo,&UploadCommandBuffer));
     //start recording
     VkCommandBufferBeginInfo CommandBufferBeginInfo={0};
     CommandBufferBeginInfo.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     CommandBufferBeginInfo.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(UploadCommandBuffer,&CommandBufferBeginInfo);
+    CHK_VK(vkBeginCommandBuffer(UploadCommandBuffer,&CommandBufferBeginInfo));
     //copy command for every object
     VkBufferCopy copyRegion={0};
 
 
     //for ObjectToBeLoaded{
         //TODO check if the size of device local and cpu side buffer are equivalent
-        copyRegion.size=ObjectToBeLoaded.deviceBuffers.IndexBufferSize+ObjectToBeLoaded.deviceBuffers.PositionBufferSize+ObjectToBeLoaded.deviceBuffers.NormalBufferSize;
-        vkCmdCopyBuffer(UploadCommandBuffer,ObjectToBeLoaded.stagingBuffers.PINBufferHandle,ObjectToBeLoaded.deviceBuffers.PINBufferHandle,1,&copyRegion);
+        copyRegion.size=ObjectToBeLoaded.deviceBuffers.PNUBufferSize+ObjectToBeLoaded.deviceBuffers.IndexBufferSize;
+        vkCmdCopyBuffer(UploadCommandBuffer,ObjectToBeLoaded.stagingBuffers.PNUIBufferHandle,ObjectToBeLoaded.deviceBuffers.PNUIBufferHandle,1,&copyRegion);
     //}
     //end recording
     vkEndCommandBuffer(UploadCommandBuffer);
@@ -523,15 +559,13 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     SubmitInfo.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO;
     SubmitInfo.commandBufferCount=1;
     SubmitInfo.pCommandBuffers=&UploadCommandBuffer;
-    vkQueueSubmit(vkRuntimeInfoP->graphics_queue,1,&SubmitInfo,VK_NULL_HANDLE);
-    vkQueueWaitIdle(vkRuntimeInfoP->graphics_queue);
+    CHK_VK(vkQueueSubmit(vkRuntimeInfoP->graphics_queue,1,&SubmitInfo,VK_NULL_HANDLE));
+    CHK_VK(vkQueueWaitIdle(vkRuntimeInfoP->graphics_queue));
     vkFreeCommandBuffers(vkRuntimeInfoP->device,vkRuntimeInfoP->commandPool,1,&UploadCommandBuffer);
     //for ObjectToBeLoaded{
-    vkDestroyBuffer(vkRuntimeInfoP->device,ObjectToBeLoaded.stagingBuffers.PINBufferHandle,NULL);
+    vkDestroyBuffer(vkRuntimeInfoP->device,ObjectToBeLoaded.stagingBuffers.PNUIBufferHandle,NULL);
     //end recording
     vkFreeMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem,NULL);
-
-
 }
 
 void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct xmlTreeElement* eng_setupxmlP){
@@ -585,9 +619,9 @@ void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct xmlTreeE
         unsigned int available_layer_idx;
         struct xmlTreeElement* currentLayerXmlElmntP=((struct xmlTreeElement**)(reqInstLayerDynlistP->items))[required_layer_idx];
         struct DynamicList* reqLayerNameDynlistP=getValueFromKeyName_freeArg2(currentLayerXmlElmntP->attributes,Dl_utf32_fromString("name"));
-        Dl_utf32_print(reqLayerNameDynlistP);
+        //Dl_utf32_print(reqLayerNameDynlistP);
         char* reqLayerNameCharP=Dl_utf32_toString(reqLayerNameDynlistP);
-        printf("%s",reqLayerNameCharP);
+        //printf("%s",reqLayerNameCharP);
         uint32_t minVersion=eng_get_version_number_from_xmlemnt(currentLayerXmlElmntP);
         for(available_layer_idx=0;available_layer_idx<layerCount;available_layer_idx++){
             if(!strcmp(LayerProptertiesP[available_layer_idx].layerName,reqLayerNameCharP)){
@@ -670,10 +704,7 @@ void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct xmlTreeE
     CreateInfo.enabledLayerCount=       vkRuntimeInfoP->InstLayerCount;
     CreateInfo.ppEnabledLayerNames=     (const char* const*)vkRuntimeInfoP->InstLayerNamesPP;
 
-    if(vkCreateInstance(&CreateInfo,NULL,&(vkRuntimeInfoP->instance))!=VK_SUCCESS){
-        dprintf(DBGT_ERROR,"Could not create vulkan instance");
-        exit(1);
-    }
+    CHK_VK(vkCreateInstance(&CreateInfo,NULL,&(vkRuntimeInfoP->instance)));
 }
 
 uint8_t* eng_vulkan_generate_device_ranking(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct xmlTreeElement* eng_setupxmlP){
@@ -681,14 +712,13 @@ uint8_t* eng_vulkan_generate_device_ranking(struct VulkanRuntimeInfo* vkRuntimeI
     struct xmlTreeElement* reqDevLayerXmlElmntP=getFirstSubelementWith_freeArg234(eng_setupxmlP,Dl_utf32_fromString("RequiredDeviceLayers"),NULL,NULL,0,1);
     struct DynamicList* reqDevLayerDynlistP=getAllSubelementsWith_freeArg234(reqDevLayerXmlElmntP,Dl_utf32_fromString("Layer"),NULL,NULL,0,1);
     struct xmlTreeElement* reqDevExtensionXmlElmntP=getFirstSubelementWith_freeArg234(eng_setupxmlP,Dl_utf32_fromString("RequiredDeviceExtensions"),NULL,NULL,0,1);
-    printXMLsubelements(reqDevExtensionXmlElmntP);
+    //printXMLsubelements(reqDevExtensionXmlElmntP);
     struct DynamicList* reqDevExtensionDynlistP=getAllSubelementsWith_freeArg234(reqDevExtensionXmlElmntP,Dl_utf32_fromString("Extension"),NULL,NULL,0,1);
 
     //get all vulkan devices
-
-    vkEnumeratePhysicalDevices(vkRuntimeInfoP->instance,&vkRuntimeInfoP->physDeviceCount,NULL);
+    CHK_VK(vkEnumeratePhysicalDevices(vkRuntimeInfoP->instance,&vkRuntimeInfoP->physDeviceCount,NULL));
     vkRuntimeInfoP->physAvailDevicesP=(VkPhysicalDevice*)malloc(vkRuntimeInfoP->physDeviceCount*sizeof(VkPhysicalDevice));
-    vkEnumeratePhysicalDevices(vkRuntimeInfoP->instance,&vkRuntimeInfoP->physDeviceCount,vkRuntimeInfoP->physAvailDevicesP);
+    CHK_VK(vkEnumeratePhysicalDevices(vkRuntimeInfoP->instance,&vkRuntimeInfoP->physDeviceCount,vkRuntimeInfoP->physAvailDevicesP));
 
     //check if our device supports the required layers,extensions and queues
     uint8_t* deviceRankingP=malloc(vkRuntimeInfoP->physDeviceCount*sizeof(uint8_t));
@@ -704,9 +734,9 @@ uint8_t* eng_vulkan_generate_device_ranking(struct VulkanRuntimeInfo* vkRuntimeI
 
         //Check layer support
         uint32_t layerCount=0;
-        vkEnumerateDeviceLayerProperties(vkRuntimeInfoP->physAvailDevicesP[physicalDevicesIdx],&layerCount,NULL);
+        CHK_VK(vkEnumerateDeviceLayerProperties(vkRuntimeInfoP->physAvailDevicesP[physicalDevicesIdx],&layerCount,NULL));
         VkLayerProperties* LayerProptertiesP=(VkLayerProperties*)malloc(layerCount*sizeof(VkLayerProperties));
-        vkEnumerateDeviceLayerProperties(vkRuntimeInfoP->physAvailDevicesP[physicalDevicesIdx],&layerCount,LayerProptertiesP);
+        CHK_VK(vkEnumerateDeviceLayerProperties(vkRuntimeInfoP->physAvailDevicesP[physicalDevicesIdx],&layerCount,LayerProptertiesP));
 
         for(unsigned int required_layer_idx=0;required_layer_idx<reqDevLayerDynlistP->itemcnt;required_layer_idx++){
             unsigned int available_layer_idx;
@@ -738,9 +768,9 @@ uint8_t* eng_vulkan_generate_device_ranking(struct VulkanRuntimeInfo* vkRuntimeI
 
         //Check extension support
         uint32_t extensionCount=0;
-        vkEnumerateDeviceExtensionProperties(vkRuntimeInfoP->physAvailDevicesP[physicalDevicesIdx],NULL,&extensionCount,NULL);
+        CHK_VK(vkEnumerateDeviceExtensionProperties(vkRuntimeInfoP->physAvailDevicesP[physicalDevicesIdx],NULL,&extensionCount,NULL));
         VkExtensionProperties* ExtensionProptertiesP=(VkExtensionProperties*)malloc(extensionCount*sizeof(VkExtensionProperties));
-        vkEnumerateDeviceExtensionProperties(vkRuntimeInfoP->physAvailDevicesP[physicalDevicesIdx],NULL,&extensionCount,ExtensionProptertiesP);
+        CHK_VK(vkEnumerateDeviceExtensionProperties(vkRuntimeInfoP->physAvailDevicesP[physicalDevicesIdx],NULL,&extensionCount,ExtensionProptertiesP));
 
         for(unsigned int required_extension_idx=0;required_extension_idx<reqDevExtensionDynlistP->itemcnt;required_extension_idx++){
             unsigned int available_extension_idx;
@@ -806,7 +836,7 @@ uint8_t* eng_vulkan_generate_device_ranking(struct VulkanRuntimeInfo* vkRuntimeI
     vkRuntimeInfoP->DevExtensionNamesPP=(char**)malloc(vkRuntimeInfoP->DevExtensionCount*sizeof(char*));
     for(uint32_t DevExtensionIdx=0;DevExtensionIdx<vkRuntimeInfoP->DevExtensionCount;DevExtensionIdx++){
         struct xmlTreeElement* currentExtensionXmlElmntP=((struct xmlTreeElement**)(reqDevExtensionDynlistP->items))[DevExtensionIdx];
-        printXMLsubelements(currentExtensionXmlElmntP);
+        //printXMLsubelements(currentExtensionXmlElmntP);
         struct DynamicList* extensionNameTempP=getValueFromKeyName_freeArg2(currentExtensionXmlElmntP->attributes,Dl_utf32_fromString("name"));
         vkRuntimeInfoP->DevExtensionNamesPP[DevExtensionIdx]=Dl_utf32_toString(extensionNameTempP);
     }
@@ -885,27 +915,17 @@ void eng_createDevice(struct VulkanRuntimeInfo* vkRuntimeInfoP,uint8_t* deviceRa
     DevCreateInfo.ppEnabledLayerNames=      (const char* const*)vkRuntimeInfoP->DevLayerNamesPP;
     DevCreateInfo.pEnabledFeatures=         NULL;
     DevCreateInfo.flags=                    0;
-    if(vkCreateDevice(vkRuntimeInfoP->physSelectedDevice,&DevCreateInfo,NULL,&(vkRuntimeInfoP->device))){
-        dprintf(DBGT_ERROR,"Could not create Vulkan logical device");
-        exit(1);
-    }
-
-
+    CHK_VK(vkCreateDevice(vkRuntimeInfoP->physSelectedDevice,&DevCreateInfo,NULL,&(vkRuntimeInfoP->device)));
 
     //Get handle for graphics queue
     vkGetDeviceQueue(vkRuntimeInfoP->device,vkRuntimeInfoP->graphics_queue_family_idx,0,&vkRuntimeInfoP->graphics_queue);
-
-
 }
 
 void eng_createCommandPool(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     VkCommandPoolCreateInfo CommandPoolInfo={0};
     CommandPoolInfo.sType=VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     CommandPoolInfo.queueFamilyIndex=vkRuntimeInfoP->graphics_queue_family_idx;
-    if(vkCreateCommandPool(vkRuntimeInfoP->device,&CommandPoolInfo,NULL,&(vkRuntimeInfoP->commandPool))){
-        dprintf(DBGT_ERROR,"Could not create command pool");
-        exit(1);
-    }
+    CHK_VK(vkCreateCommandPool(vkRuntimeInfoP->device,&CommandPoolInfo,NULL,&(vkRuntimeInfoP->commandPool)));
 }
 
 struct xmlTreeElement* eng_get_eng_setupxml(char* FilePath,int debug_enabled){
@@ -926,7 +946,7 @@ struct xmlTreeElement* eng_get_eng_setupxml(char* FilePath,int debug_enabled){
         exit(1);
     }
     engSetupDebOrRelP=((struct xmlTreeElement**)(tempXmlDynlistP->items))[0];
-    printXMLsubelements(engSetupDebOrRelP);
+    //printXMLsubelements(engSetupDebOrRelP);
     DlDelete(tempXmlDynlistP);
     return engSetupDebOrRelP;
 };
@@ -962,37 +982,27 @@ void cleanup(struct VulkanRuntimeInfo* vkRuntimeInfoP){
 }
 
 void eng_createSurface(struct VulkanRuntimeInfo* vkRuntimeInfoP,GLFWwindow* glfwWindowP){
-    if(glfwCreateWindowSurface(vkRuntimeInfoP->instance,glfwWindowP,NULL,&vkRuntimeInfoP->surface)){
-        dprintf(DBGT_ERROR,"Could not create vulkan presentation surface");
-        exit(1);
-    }
+    CHK_VK(glfwCreateWindowSurface(vkRuntimeInfoP->instance,glfwWindowP,NULL,&vkRuntimeInfoP->surface));
 }
 
 void eng_createSwapChain(struct VulkanRuntimeInfo* vkRuntimeInfoP,GLFWwindow* glfwWindowP){
     VkBool32 surfaceSupport=VK_TRUE;
-    if(vkGetPhysicalDeviceSurfaceSupportKHR(vkRuntimeInfoP->physSelectedDevice,vkRuntimeInfoP->graphics_queue_family_idx,vkRuntimeInfoP->surface,&surfaceSupport)){
-        dprintf(DBGT_ERROR,"Could not querry device surface support");
-        exit(1);
-    }
-    if(surfaceSupport!=VK_TRUE){
-        dprintf(DBGT_ERROR,"device does not support surface");
-        exit(1);
-    }
-
+    CHK_VK(vkGetPhysicalDeviceSurfaceSupportKHR(vkRuntimeInfoP->physSelectedDevice,vkRuntimeInfoP->graphics_queue_family_idx,vkRuntimeInfoP->surface,&surfaceSupport));
+    CHK_VK(surfaceSupport!=VK_TRUE);
 
     //get basic surface capabilitiers
     struct VkSurfaceCapabilitiesKHR surfaceCapabilities;
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vkRuntimeInfoP->physSelectedDevice,vkRuntimeInfoP->surface,&surfaceCapabilities);
+    CHK_VK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vkRuntimeInfoP->physSelectedDevice,vkRuntimeInfoP->surface,&surfaceCapabilities));
     //get supported formats
     uint32_t formatCount=0;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(vkRuntimeInfoP->physSelectedDevice,vkRuntimeInfoP->surface,&formatCount,NULL);
+    CHK_VK(vkGetPhysicalDeviceSurfaceFormatsKHR(vkRuntimeInfoP->physSelectedDevice,vkRuntimeInfoP->surface,&formatCount,NULL));
     VkSurfaceFormatKHR* SurfaceFormatsP=(VkSurfaceFormatKHR*)malloc(formatCount*sizeof(VkSurfaceFormatKHR));
-    vkGetPhysicalDeviceSurfaceFormatsKHR(vkRuntimeInfoP->physSelectedDevice,vkRuntimeInfoP->surface,&formatCount,SurfaceFormatsP);
+    CHK_VK(vkGetPhysicalDeviceSurfaceFormatsKHR(vkRuntimeInfoP->physSelectedDevice,vkRuntimeInfoP->surface,&formatCount,SurfaceFormatsP));
     //get supported present modes
     uint32_t presentModeCount=0;
-    vkGetPhysicalDeviceSurfacePresentModesKHR(vkRuntimeInfoP->physSelectedDevice,vkRuntimeInfoP->surface,&presentModeCount,NULL);
+    CHK_VK(vkGetPhysicalDeviceSurfacePresentModesKHR(vkRuntimeInfoP->physSelectedDevice,vkRuntimeInfoP->surface,&presentModeCount,NULL));
     VkPresentModeKHR* PresentModeP=(VkPresentModeKHR*)malloc(presentModeCount*sizeof(VkPresentModeKHR));
-    vkGetPhysicalDeviceSurfacePresentModesKHR(vkRuntimeInfoP->physSelectedDevice,vkRuntimeInfoP->surface,&presentModeCount,PresentModeP);
+    CHK_VK(vkGetPhysicalDeviceSurfacePresentModesKHR(vkRuntimeInfoP->physSelectedDevice,vkRuntimeInfoP->surface,&presentModeCount,PresentModeP));
 
     //choose the format/mode we want
     uint32_t availableFormatIdx;
@@ -1043,14 +1053,10 @@ void eng_createSwapChain(struct VulkanRuntimeInfo* vkRuntimeInfoP,GLFWwindow* gl
     swapchainCreateInfo.clipped=VK_TRUE;    //Don't render pixels that are obstructed by other windows
     swapchainCreateInfo.oldSwapchain=VK_NULL_HANDLE;
 
-    if(vkCreateSwapchainKHR(vkRuntimeInfoP->device,&swapchainCreateInfo,NULL,&vkRuntimeInfoP->swapChain)!=VK_SUCCESS){
-        dprintf(DBGT_ERROR,"Could not create swap chain");
-        exit(1);
-    }
-
-    vkGetSwapchainImagesKHR(vkRuntimeInfoP->device,vkRuntimeInfoP->swapChain,&vkRuntimeInfoP->imagesInFlightCount,NULL);
+    CHK_VK(vkCreateSwapchainKHR(vkRuntimeInfoP->device,&swapchainCreateInfo,NULL,&vkRuntimeInfoP->swapChain));
+    CHK_VK(vkGetSwapchainImagesKHR(vkRuntimeInfoP->device,vkRuntimeInfoP->swapChain,&vkRuntimeInfoP->imagesInFlightCount,NULL));
     vkRuntimeInfoP->swapChainImagesP=(VkImage*)malloc(vkRuntimeInfoP->imagesInFlightCount*sizeof(VkImage));
-    vkGetSwapchainImagesKHR(vkRuntimeInfoP->device,vkRuntimeInfoP->swapChain,&vkRuntimeInfoP->imagesInFlightCount,vkRuntimeInfoP->swapChainImagesP);
+    CHK_VK(vkGetSwapchainImagesKHR(vkRuntimeInfoP->device,vkRuntimeInfoP->swapChain,&vkRuntimeInfoP->imagesInFlightCount,vkRuntimeInfoP->swapChainImagesP));
 }
 
 void eng_createImageViews(struct VulkanRuntimeInfo* vkRuntimeInfoP){
@@ -1073,10 +1079,7 @@ void eng_createImageViews(struct VulkanRuntimeInfo* vkRuntimeInfoP){
         imageViewCreateInfo.viewType=VK_IMAGE_VIEW_TYPE_2D;
         imageViewCreateInfo.image=(vkRuntimeInfoP->swapChainImagesP)[imageIndex];
 
-        if(vkCreateImageView(vkRuntimeInfoP->device,&imageViewCreateInfo,NULL,&(vkRuntimeInfoP->swapChainImageViewsP[imageIndex]))){
-            dprintf(DBGT_ERROR,"Could not create Image View for swap chain image");
-            exit(1);
-        }
+        CHK_VK(vkCreateImageView(vkRuntimeInfoP->device,&imageViewCreateInfo,NULL,&(vkRuntimeInfoP->swapChainImageViewsP[imageIndex])));
     }
 }
 
@@ -1114,10 +1117,7 @@ void eng_createRenderPass(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     RenderPassInfo.subpassCount=1;
     RenderPassInfo.pSubpasses=&subPasses;
 
-    if(vkCreateRenderPass(vkRuntimeInfoP->device,&RenderPassInfo,NULL,&vkRuntimeInfoP->renderPass)){
-        dprintf(DBGT_ERROR,"Could not create Render pass");
-        exit(1);
-    }
+    CHK_VK(vkCreateRenderPass(vkRuntimeInfoP->device,&RenderPassInfo,NULL,&vkRuntimeInfoP->renderPass));
 
 }
 
@@ -1134,11 +1134,11 @@ void eng_createDescriptorPoolAndSets(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     DescriptorPoolInfo.poolSizeCount=1;
     DescriptorPoolInfo.pPoolSizes=&DescriptorPoolSize;
     DescriptorPoolInfo.maxSets=vkRuntimeInfoP->imagesInFlightCount; //the descriptor pool can store two sets
-    vkCreateDescriptorPool(vkRuntimeInfoP->device,&DescriptorPoolInfo,NULL,&(vkRuntimeInfoP->descriptorPool));
+    CHK_VK(vkCreateDescriptorPool(vkRuntimeInfoP->device,&DescriptorPoolInfo,NULL,&(vkRuntimeInfoP->descriptorPool)));
 
     VkDescriptorSetLayoutBinding LayoutBinding={0};
     LayoutBinding.stageFlags=VK_SHADER_STAGE_VERTEX_BIT;
-    LayoutBinding.binding=1;    //for mvp in binding 1
+    LayoutBinding.binding=0;    //for mvp in binding 0, for all frames this should keep that way
     LayoutBinding.descriptorCount=1;
     LayoutBinding.descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 
@@ -1147,34 +1147,18 @@ void eng_createDescriptorPoolAndSets(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     DescriptorSetLayoutInfo.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     DescriptorSetLayoutInfo.bindingCount=1;
     DescriptorSetLayoutInfo.pBindings=&LayoutBinding;
-    vkRuntimeInfoP->descriptorSetLayoutsP=(VkDescriptorSetLayout*)malloc(vkRuntimeInfoP->imagesInFlightCount*sizeof(VkDescriptorSetLayout));
-    for(uint32_t image=0;image<vkRuntimeInfoP->imagesInFlightCount;image++){
-        vkCreateDescriptorSetLayout(vkRuntimeInfoP->device,&DescriptorSetLayoutInfo,NULL,&(vkRuntimeInfoP->descriptorSetLayoutsP[image]));
-    }
+    vkRuntimeInfoP->descriptorSetLayoutP=(VkDescriptorSetLayout*)malloc(sizeof(VkDescriptorSetLayout));
+    CHK_VK(vkCreateDescriptorSetLayout(vkRuntimeInfoP->device,&DescriptorSetLayoutInfo,NULL,vkRuntimeInfoP->descriptorSetLayoutP));
 
     //Allocate descriptor set
     VkDescriptorSetAllocateInfo DescriptorSetAllocateInfo={0};
     DescriptorSetAllocateInfo.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     DescriptorSetAllocateInfo.descriptorPool=vkRuntimeInfoP->descriptorPool;
-    DescriptorSetAllocateInfo.descriptorSetCount=vkRuntimeInfoP->imagesInFlightCount; //one mvp matrix and hence one descriptor set per frame in flight
-    DescriptorSetAllocateInfo.pSetLayouts=vkRuntimeInfoP->descriptorSetLayoutsP;
+    DescriptorSetAllocateInfo.descriptorSetCount=1; //one mvp matrix and hence one descriptor set per frame in flight
+    DescriptorSetAllocateInfo.pSetLayouts=vkRuntimeInfoP->descriptorSetLayoutP;
     vkRuntimeInfoP->descriptorSetsP=(VkDescriptorSet*)malloc(vkRuntimeInfoP->imagesInFlightCount*sizeof(VkDescriptorSet));
-    vkAllocateDescriptorSets(vkRuntimeInfoP->device,&DescriptorSetAllocateInfo,vkRuntimeInfoP->descriptorSetsP);
-
-    for(uint32_t image=0;image<vkRuntimeInfoP->imagesInFlightCount;image++){
-        //Write descriptor set
-        VkDescriptorBufferInfo BufferInfo;
-        BufferInfo.buffer=vkRuntimeInfoP->UniformBufferHandle;
-        BufferInfo.offset=sizeof(mat4x4)*image;
-        BufferInfo.range=sizeof(mat4x4);
-        VkWriteDescriptorSet WriteDescriptorSet={0};
-        WriteDescriptorSet.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        WriteDescriptorSet.descriptorCount=1;
-        WriteDescriptorSet.descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        WriteDescriptorSet.dstBinding=1;
-        WriteDescriptorSet.dstSet=vkRuntimeInfoP->descriptorSetsP[image];
-        WriteDescriptorSet.pBufferInfo=&BufferInfo;
-        vkUpdateDescriptorSets(vkRuntimeInfoP->device,1,&WriteDescriptorSet,0,NULL);
+    for(uint32_t image=0;image<vkRuntimeInfoP->imagesInFlightCount;image++){  //if the all generated sets need to have the same layout one needs to loop over the allocateDescriptorSets Function
+        CHK_VK(vkAllocateDescriptorSets(vkRuntimeInfoP->device,&DescriptorSetAllocateInfo,&(vkRuntimeInfoP->descriptorSetsP[image])));
     }
 
 }
@@ -1182,41 +1166,49 @@ void eng_createDescriptorPoolAndSets(struct VulkanRuntimeInfo* vkRuntimeInfoP){
 void eng_createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP){
 
     VkVertexInputAttributeDescription InputAttributeDescriptionArray[2];
+    //Positions
     InputAttributeDescriptionArray[0].location=0;   //will be used for positions vec3 (location=0) in shader
     InputAttributeDescriptionArray[0].binding=0;    //binding used to cross reference to the InputBindingDescription
     InputAttributeDescriptionArray[0].format=VK_FORMAT_R32G32B32_SFLOAT;    //is equivalent to vec3
     InputAttributeDescriptionArray[0].offset=0;     //positions are at the start of our static buffer
+    //Normals
+    InputAttributeDescriptionArray[1].location=1;
+    InputAttributeDescriptionArray[1].binding=0;
+    InputAttributeDescriptionArray[1].format=VK_FORMAT_R32G32B32_SFLOAT;    //is equivalent to vec3
+    InputAttributeDescriptionArray[1].offset=4;
+    //UVs
+    InputAttributeDescriptionArray[2].location=2;
+    InputAttributeDescriptionArray[2].binding=0;
+    InputAttributeDescriptionArray[2].format=VK_FORMAT_R32G32_SFLOAT;    //is equivalent to vec2
+    InputAttributeDescriptionArray[2].offset=8;
 
-    VkVertexInputBindingDescription InputBindingDescriptionArray[2];
+
+    VkVertexInputBindingDescription InputBindingDescriptionArray[1];
     InputBindingDescriptionArray[0].binding=0;  //binding used to cross reference to the InputAttributeDescription
     InputBindingDescriptionArray[0].inputRate=VK_VERTEX_INPUT_RATE_VERTEX;    //jump to next vertex for every new triangle in the index buffer, not every vertex
-    InputBindingDescriptionArray[0].stride=sizeof(float)*4;                     //stride is sizeof(vec4)
+    InputBindingDescriptionArray[0].stride=sizeof(float)*10;                     //stride is sizeof(vec4)*/
+
+
     //VertexInput
-    VkPipelineVertexInputStateCreateInfo PipelineVertexInputStateInfo;
+    VkPipelineVertexInputStateCreateInfo PipelineVertexInputStateInfo={0};
     PipelineVertexInputStateInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     PipelineVertexInputStateInfo.pNext=NULL;
-    PipelineVertexInputStateInfo.flags=0;
-    PipelineVertexInputStateInfo.vertexAttributeDescriptionCount=1;
-    PipelineVertexInputStateInfo.vertexBindingDescriptionCount=1;
+    PipelineVertexInputStateInfo.vertexAttributeDescriptionCount=2;
+    PipelineVertexInputStateInfo.vertexBindingDescriptionCount=2;
     //needs to be set if we supply vertex buffers to our shader
     PipelineVertexInputStateInfo.pVertexAttributeDescriptions=InputAttributeDescriptionArray;
     PipelineVertexInputStateInfo.pVertexBindingDescriptions=InputBindingDescriptionArray;
 
-    VkPipelineInputAssemblyStateCreateInfo PipelineInputAssemblyInfo;
+    VkPipelineInputAssemblyStateCreateInfo PipelineInputAssemblyInfo={0};
     PipelineInputAssemblyInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    PipelineInputAssemblyInfo.pNext=NULL;
-    PipelineInputAssemblyInfo.flags=0;
     PipelineInputAssemblyInfo.primitiveRestartEnable=VK_FALSE;
     PipelineInputAssemblyInfo.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
     //Vertex Shader
-    VkPipelineShaderStageCreateInfo VertexShaderStageCreateInfo;
+    VkPipelineShaderStageCreateInfo VertexShaderStageCreateInfo={0};
     VertexShaderStageCreateInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    VertexShaderStageCreateInfo.pNext=NULL;
     VertexShaderStageCreateInfo.module=vkRuntimeInfoP->VertexShaderModule;
     VertexShaderStageCreateInfo.stage=VK_SHADER_STAGE_VERTEX_BIT;
-    VertexShaderStageCreateInfo.flags=0;
-    VertexShaderStageCreateInfo.pSpecializationInfo=NULL;
     VertexShaderStageCreateInfo.pName="main";
 
     //Rasterizer
@@ -1234,19 +1226,15 @@ void eng_createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     viewport.height=vkRuntimeInfoP->swapChainImageExtent.height;
     viewport.width=vkRuntimeInfoP->swapChainImageExtent.width;
     //ViewportInfo
-    VkPipelineViewportStateCreateInfo PipelineViewportInfo;
+    VkPipelineViewportStateCreateInfo PipelineViewportInfo={0};
     PipelineViewportInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    PipelineViewportInfo.pNext=NULL;
-    PipelineViewportInfo.flags=0;
     PipelineViewportInfo.viewportCount=1;
     PipelineViewportInfo.scissorCount=1;
     PipelineViewportInfo.pScissors=&scissor;
     PipelineViewportInfo.pViewports=&viewport;
     //RasterizerInfo
-    VkPipelineRasterizationStateCreateInfo RasterizationInfo;
+    VkPipelineRasterizationStateCreateInfo RasterizationInfo={0};
     RasterizationInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    RasterizationInfo.pNext=NULL;
-    RasterizationInfo.flags=0;
     RasterizationInfo.depthClampEnable=VK_FALSE;
     RasterizationInfo.rasterizerDiscardEnable=VK_FALSE;
     RasterizationInfo.polygonMode=VK_POLYGON_MODE_FILL;
@@ -1258,10 +1246,8 @@ void eng_createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     RasterizationInfo.depthBiasClamp=0.0f;
     RasterizationInfo.depthBiasSlopeFactor=0.0f;
     //Multisampling
-    VkPipelineMultisampleStateCreateInfo MultisampleInfo;
+    VkPipelineMultisampleStateCreateInfo MultisampleInfo={0};
     MultisampleInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    MultisampleInfo.pNext=NULL;
-    MultisampleInfo.flags=0;
     MultisampleInfo.sampleShadingEnable=VK_FALSE;
     MultisampleInfo.alphaToOneEnable=VK_FALSE;
     MultisampleInfo.minSampleShading=1.0f;
@@ -1271,17 +1257,15 @@ void eng_createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     MultisampleInfo.alphaToCoverageEnable=VK_FALSE;
 
     //Fragment
-    VkPipelineShaderStageCreateInfo FragmentShaderStageCreateInfo;
+    VkPipelineShaderStageCreateInfo FragmentShaderStageCreateInfo={0};
     FragmentShaderStageCreateInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    FragmentShaderStageCreateInfo.pNext=NULL;
     FragmentShaderStageCreateInfo.module=vkRuntimeInfoP->FragmentShaderModule;
     FragmentShaderStageCreateInfo.stage=VK_SHADER_STAGE_FRAGMENT_BIT;
-    FragmentShaderStageCreateInfo.flags=0;
     FragmentShaderStageCreateInfo.pSpecializationInfo=NULL;
     FragmentShaderStageCreateInfo.pName="main";
 
     //Blending
-    VkPipelineColorBlendAttachmentState ColorBlendAttachment;
+    VkPipelineColorBlendAttachmentState ColorBlendAttachment={0};
     ColorBlendAttachment.colorWriteMask=VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT;
     ColorBlendAttachment.blendEnable=VK_FALSE;
     ColorBlendAttachment.colorBlendOp=VK_BLEND_OP_ADD;
@@ -1291,9 +1275,8 @@ void eng_createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     ColorBlendAttachment.srcAlphaBlendFactor=VK_BLEND_FACTOR_ONE;
     ColorBlendAttachment.dstAlphaBlendFactor=VK_BLEND_FACTOR_ZERO;
 
-    VkPipelineColorBlendStateCreateInfo ColorBlendInfo;
+    VkPipelineColorBlendStateCreateInfo ColorBlendInfo={0};
     ColorBlendInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    ColorBlendInfo.pNext=NULL;
     ColorBlendInfo.flags=0;
     ColorBlendInfo.logicOp=VK_FALSE;
     ColorBlendInfo.attachmentCount=1;
@@ -1304,19 +1287,17 @@ void eng_createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     ColorBlendInfo.blendConstants[3]=0.0f;
 
     //Pipeline Layout for Uniforms
-    VkPipelineLayoutCreateInfo PipelineLayoutInfo;
+    VkPipelineLayoutCreateInfo PipelineLayoutInfo={0};
     PipelineLayoutInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    PipelineLayoutInfo.pNext=NULL;
-    PipelineLayoutInfo.flags=0;
-    PipelineLayoutInfo.setLayoutCount=2;
-    PipelineLayoutInfo.pSetLayouts=vkRuntimeInfoP->descriptorSetsP;  //TODO errors here, needs to be initialized, check function order!!!
+    //TODO reenable
+    PipelineLayoutInfo.setLayoutCount=1;
+    PipelineLayoutInfo.pSetLayouts=vkRuntimeInfoP->descriptorSetLayoutP;
+    //PipelineLayoutInfo.setLayoutCount=0;
+    //PipelineLayoutInfo.pSetLayouts=NULL;
     PipelineLayoutInfo.pushConstantRangeCount=0;
     PipelineLayoutInfo.pPushConstantRanges=NULL;
 
-    if(vkCreatePipelineLayout(vkRuntimeInfoP->device,&PipelineLayoutInfo,NULL,&(vkRuntimeInfoP->graphicsPipelineLayout))){
-        dprintf(DBGT_ERROR,"Could not create pipeline layout");
-        exit(1);
-    }
+    CHK_VK(vkCreatePipelineLayout(vkRuntimeInfoP->device,&PipelineLayoutInfo,NULL,&(vkRuntimeInfoP->graphicsPipelineLayout)));
 
     //Assemble everything
     VkPipelineShaderStageCreateInfo Stages[2]={
@@ -1326,7 +1307,6 @@ void eng_createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP){
 
     VkGraphicsPipelineCreateInfo PipelineInfo={0};
     PipelineInfo.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    PipelineInfo.pNext=NULL;
     PipelineInfo.stageCount=2;
     PipelineInfo.pStages=Stages;
     PipelineInfo.pVertexInputState=&PipelineVertexInputStateInfo;
@@ -1342,10 +1322,7 @@ void eng_createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     PipelineInfo.layout=vkRuntimeInfoP->graphicsPipelineLayout;
     PipelineInfo.renderPass=vkRuntimeInfoP->renderPass;
     PipelineInfo.subpass=0;
-    if(vkCreateGraphicsPipelines(vkRuntimeInfoP->device,VK_NULL_HANDLE,1,&PipelineInfo,NULL,&(vkRuntimeInfoP->graphicsPipeline))){
-        dprintf(DBGT_ERROR,"Could not create graphics pipeline");
-        exit(1);
-    }
+    CHK_VK(vkCreateGraphicsPipelines(vkRuntimeInfoP->device,VK_NULL_HANDLE,1,&PipelineInfo,NULL,&(vkRuntimeInfoP->graphicsPipeline)));
 }
 
 void eng_createFramebuffers(struct VulkanRuntimeInfo* vkRuntimeInfoP){
@@ -1359,10 +1336,7 @@ void eng_createFramebuffers(struct VulkanRuntimeInfo* vkRuntimeInfoP){
         FramebufferInfo.layers=1;
         FramebufferInfo.attachmentCount=1;
         FramebufferInfo.pAttachments=&(vkRuntimeInfoP->swapChainImageViewsP[framebufferIdx]);
-        if(vkCreateFramebuffer(vkRuntimeInfoP->device,&FramebufferInfo,NULL,&(vkRuntimeInfoP->FramebufferP[framebufferIdx]))){
-            dprintf(DBGT_ERROR,"Could not create framebuffer");
-            exit(1);
-        }
+        CHK_VK(vkCreateFramebuffer(vkRuntimeInfoP->device,&FramebufferInfo,NULL,&(vkRuntimeInfoP->FramebufferP[framebufferIdx])));
     }
 }
 
@@ -1375,17 +1349,11 @@ void eng_createRenderCommandBuffers(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     CommandBufferAllocateInfo.commandBufferCount=vkRuntimeInfoP->imagesInFlightCount;
     CommandBufferAllocateInfo.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
-    if(vkAllocateCommandBuffers(vkRuntimeInfoP->device,&CommandBufferAllocateInfo,vkRuntimeInfoP->CommandbufferP)){
-        dprintf(DBGT_ERROR,"Could not allocate command buffer");
-        exit(1);
-    }
+    CHK_VK(vkAllocateCommandBuffers(vkRuntimeInfoP->device,&CommandBufferAllocateInfo,vkRuntimeInfoP->CommandbufferP));
     for(uint32_t CommandBufferIdx=0;CommandBufferIdx<vkRuntimeInfoP->imagesInFlightCount;CommandBufferIdx++){
         VkCommandBufferBeginInfo CommandBufferBeginInfo={0};
         CommandBufferBeginInfo.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        if(vkBeginCommandBuffer(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],&CommandBufferBeginInfo)){
-            dprintf(DBGT_ERROR,"Could not begin recording to command buffer");
-            exit(1);
-        }
+        CHK_VK(vkBeginCommandBuffer(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],&CommandBufferBeginInfo));
 
         VkClearValue clearColor={{{0.0f,0.0f,0.0f,1.0f}}};
         VkRenderPassBeginInfo RenderPassInfo={0};
@@ -1398,14 +1366,16 @@ void eng_createRenderCommandBuffers(struct VulkanRuntimeInfo* vkRuntimeInfoP){
         RenderPassInfo.renderArea.offset.y=0;
         RenderPassInfo.renderPass=vkRuntimeInfoP->renderPass;
         vkCmdBeginRenderPass(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],&RenderPassInfo,VK_SUBPASS_CONTENTS_INLINE);
-        VkDeviceSize PIUBufferOffset=0;
-        vkCmdBindVertexBuffers(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],CommandBufferIdx,1,&(ObjectToBeLoaded.deviceBuffers.PINBufferHandle),&PIUBufferOffset);
-        vkCmdBindIndexBuffer(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],ObjectToBeLoaded.deviceBuffers.PINBufferHandle,ObjectToBeLoaded.deviceBuffers.PositionBufferSize,VK_INDEX_TYPE_UINT32);
+
+        VkDeviceSize PNUBufferOffset=0;
+        vkCmdBindVertexBuffers(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],0,1,&ObjectToBeLoaded.deviceBuffers.PNUIBufferHandle,&PNUBufferOffset);
+        vkCmdBindIndexBuffer(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],ObjectToBeLoaded.deviceBuffers.PNUIBufferHandle,ObjectToBeLoaded.deviceBuffers.PNUBufferSize,VK_INDEX_TYPE_UINT32);
+        vkCmdBindDescriptorSets(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],VK_PIPELINE_BIND_POINT_GRAPHICS,vkRuntimeInfoP->graphicsPipelineLayout,0,1,&(vkRuntimeInfoP->descriptorSetsP[CommandBufferIdx]),0,NULL);
+        //vkCmdBindDescriptorSets(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],VK_PIPELINE_BIND_POINT_GRAPHICS,vkRuntimeInfoP->graphicsPipelineLayout,0,1,vkRuntimeInfoP->descriptorSetsP,0,NULL);
         vkCmdBindPipeline(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],VK_PIPELINE_BIND_POINT_GRAPHICS,vkRuntimeInfoP->graphicsPipeline);
-        vkCmdBindDescriptorSets(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],VK_PIPELINE_BIND_POINT_GRAPHICS,vkRuntimeInfoP->graphicsPipelineLayout,0,1,vkRuntimeInfoP->descriptorSetsP,0,NULL);
         vkCmdDrawIndexed(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],(ObjectToBeLoaded.deviceBuffers.IndexBufferSize)/sizeof(uint32_t),1,0,0,0);
         vkCmdEndRenderPass(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx]);
-        vkEndCommandBuffer(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx]);
+        CHK_VK(vkEndCommandBuffer(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx]));
     }
 }
 
@@ -1424,18 +1394,9 @@ void eng_createSynchronizationPrimitives(struct VulkanRuntimeInfo* vkRuntimeInfo
     vkRuntimeInfoP->ImageAlreadyProcessingFenceP=(VkFence*)malloc(sizeof(VkFence)*vkRuntimeInfoP->imagesInFlightCount);
 
     for(uint32_t FrameIdx=0;FrameIdx<vkRuntimeInfoP->imagesInFlightCount;FrameIdx++){
-        if(vkCreateFence(vkRuntimeInfoP->device,&FenceInfo,NULL,(vkRuntimeInfoP->ImageAlreadyProcessingFenceP)+FrameIdx)){
-            dprintf(DBGT_ERROR,"Could not create image processing fence");
-            exit(1);
-        }
-        if(vkCreateSemaphore(vkRuntimeInfoP->device,&SemaphoreInfo,NULL,(vkRuntimeInfoP->imageAvailableSemaphoreP)+FrameIdx)){
-            dprintf(DBGT_ERROR,"Could not create image available semaphore");
-            exit(1);
-        }
-        if(vkCreateSemaphore(vkRuntimeInfoP->device,&SemaphoreInfo,NULL,(vkRuntimeInfoP->renderFinishedSemaphoreP)+FrameIdx)){
-            dprintf(DBGT_ERROR,"Could not create image available semaphore");
-            exit(1);
-        }
+        CHK_VK(vkCreateFence(vkRuntimeInfoP->device,&FenceInfo,NULL,(vkRuntimeInfoP->ImageAlreadyProcessingFenceP)+FrameIdx));
+        CHK_VK(vkCreateSemaphore(vkRuntimeInfoP->device,&SemaphoreInfo,NULL,(vkRuntimeInfoP->imageAvailableSemaphoreP)+FrameIdx));
+        CHK_VK(vkCreateSemaphore(vkRuntimeInfoP->device,&SemaphoreInfo,NULL,(vkRuntimeInfoP->renderFinishedSemaphoreP)+FrameIdx));
     }
 
 }
@@ -1445,45 +1406,54 @@ void error_callback(int code,const char* description){
 }
 
 void eng_draw(struct VulkanRuntimeInfo* vkRuntimeInfoP){
+    static float angle=0;
     static uint32_t nextImageIdx=0;
     //Work
     if(vkWaitForFences(vkRuntimeInfoP->device,1,(vkRuntimeInfoP->ImageAlreadyProcessingFenceP)+nextImageIdx,VK_TRUE,UINT64_MAX)){
         dprintf(DBGT_ERROR,"Waiting for fence timeout");
         exit(1);
     }
-    if(vkResetFences(vkRuntimeInfoP->device,1,(vkRuntimeInfoP->ImageAlreadyProcessingFenceP)+nextImageIdx)){
-        dprintf(DBGT_ERROR,"Could not reset fence");
-        exit(1);
-    }
+    CHK_VK(vkResetFences(vkRuntimeInfoP->device,1,(vkRuntimeInfoP->ImageAlreadyProcessingFenceP)+nextImageIdx));
 
     //create new MVP
     //Model
     mat4x4 MMatrix;
     mat4x4 MVPMatrix;
     mat4x4_identity(MMatrix);
-    mat4x4_rotate_X(MVPMatrix,MMatrix,0.3f);
+    mat4x4_rotate_X(MVPMatrix,MMatrix,angle);
+    angle+=0.01f;
+
     //View
     mat4x4 VMatrix;
-    vec3 eye={0.0f,0.0f,2.0f};
+    vec3 eye={2.0f,0.0f,0.5f};
     vec3 center={0.0f,0.0f,0.0f};
     vec3 up={0.0f,0.0f,1.0f};
     mat4x4_look_at(VMatrix,eye,center,up);
+    /*
+    for(int row=0;row<4;row++){
+        for(int col=0;col<4;col++){
+            printf("%f \t",VMatrix[row][col]);
+        }
+        printf("\n");
+    }
+    printf("\n");*/
     mat4x4_mul(MVPMatrix,VMatrix,MVPMatrix);
+
     //projection
     mat4x4 PMatrix;
     float aspRatio=((float)vkRuntimeInfoP->swapChainImageExtent.width)/vkRuntimeInfoP->swapChainImageExtent.height;
     mat4x4_perspective(PMatrix,1.6f,aspRatio,0.1f,10.0f);
     mat4x4_mul(MVPMatrix,PMatrix,MVPMatrix);
+
     //copy in buffer
     void* mappedUniformSliceP;
-    vkMapMemory(vkRuntimeInfoP->device,vkRuntimeInfoP->UniformBufferMemory,sizeof(mat4x4)*nextImageIdx,sizeof(mat4x4),0,&mappedUniformSliceP);
-    memcpy(mappedUniformSliceP,&MVPMatrix,sizeof(mat4x4));
+    CHK_VK(vkMapMemory(vkRuntimeInfoP->device,vkRuntimeInfoP->UniformBufferMemory,sizeof(mat4x4)*nextImageIdx,sizeof(mat4x4),0,&mappedUniformSliceP));
+    memcpy(mappedUniformSliceP,&(MVPMatrix[0][0]),sizeof(mat4x4));
+    //TODO flush memory
     vkUnmapMemory(vkRuntimeInfoP->device,vkRuntimeInfoP->UniformBufferMemory);
 
     //Get next image from swapChain
-    if(vkAcquireNextImageKHR(vkRuntimeInfoP->device,vkRuntimeInfoP->swapChain,UINT64_MAX,(vkRuntimeInfoP->imageAvailableSemaphoreP)[nextImageIdx],VK_NULL_HANDLE,&nextImageIdx)){
-        dprintf(DBGT_ERROR,"Error while requesting swapchain image");
-    }
+    CHK_VK(vkAcquireNextImageKHR(vkRuntimeInfoP->device,vkRuntimeInfoP->swapChain,UINT64_MAX,(vkRuntimeInfoP->imageAvailableSemaphoreP)[nextImageIdx],VK_NULL_HANDLE,&nextImageIdx));
 
     VkPipelineStageFlags waitStages[]={VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
     VkSubmitInfo SubmitInfo={0};
@@ -1496,10 +1466,7 @@ void eng_draw(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     SubmitInfo.signalSemaphoreCount=1;
     SubmitInfo.pSignalSemaphores=(vkRuntimeInfoP->renderFinishedSemaphoreP)+nextImageIdx;
 
-    if(vkQueueSubmit(vkRuntimeInfoP->graphics_queue,1,&SubmitInfo,vkRuntimeInfoP->ImageAlreadyProcessingFenceP[nextImageIdx])){
-        dprintf(DBGT_ERROR,"Could not submit command buffer to graphic queue");
-        exit(1);
-    }
+    CHK_VK(vkQueueSubmit(vkRuntimeInfoP->graphics_queue,1,&SubmitInfo,vkRuntimeInfoP->ImageAlreadyProcessingFenceP[nextImageIdx]));
     VkPresentInfoKHR PresentInfo={0};
     PresentInfo.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     PresentInfo.waitSemaphoreCount=1;
@@ -1507,15 +1474,31 @@ void eng_draw(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     PresentInfo.swapchainCount=1;
     PresentInfo.pSwapchains=&(vkRuntimeInfoP->swapChain);
     PresentInfo.pImageIndices=&nextImageIdx;
-    if(vkQueuePresentKHR(vkRuntimeInfoP->graphics_queue,&PresentInfo)){
-        dprintf(DBGT_ERROR,"Could not queue presentation");
-    }
+    CHK_VK(vkQueuePresentKHR(vkRuntimeInfoP->graphics_queue,&PresentInfo));
 
     nextImageIdx+=1;
     nextImageIdx%=vkRuntimeInfoP->imagesInFlightCount;
-
-
 }
+
+void eng_writeDescriptorSets(struct VulkanRuntimeInfo* vkRuntimeInfoP){
+    for(uint32_t image=0;image<vkRuntimeInfoP->imagesInFlightCount;image++){
+        //Write descriptor set
+        VkDescriptorBufferInfo BufferInfo;
+        BufferInfo.buffer=vkRuntimeInfoP->UniformBufferHandle;
+        BufferInfo.offset=sizeof(mat4x4)*image;
+        BufferInfo.range=sizeof(mat4x4);
+
+        VkWriteDescriptorSet WriteDescriptorSet={0};
+        WriteDescriptorSet.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        WriteDescriptorSet.descriptorCount=1;
+        WriteDescriptorSet.descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        WriteDescriptorSet.dstBinding=0;
+        WriteDescriptorSet.dstSet=vkRuntimeInfoP->descriptorSetsP[image];
+        WriteDescriptorSet.pBufferInfo=&BufferInfo;
+        vkUpdateDescriptorSets(vkRuntimeInfoP->device,1,&WriteDescriptorSet,0,NULL);
+    }
+}
+
 
 int main(int argc, char** argv){
     (void)argc; //avoid unused arguments warning
@@ -1549,11 +1532,12 @@ int main(int argc, char** argv){
     eng_createImageViews(&engVkRuntimeInfo);                                //depends on eng_createSwapChain
     eng_createShaderModule(&engVkRuntimeInfo,"./res/shader1.xml");          //depends on eng_createDevice
     eng_createRenderPass(&engVkRuntimeInfo);                                //depends on eng_createSwapChain
-    eng_createGraphicsPipeline(&engVkRuntimeInfo);                          //depends on eng_createShaderModule and eng_createImageViews
+    eng_createDescriptorPoolAndSets(&engVkRuntimeInfo);                     //depends on eng_createSwapChain
+    eng_createGraphicsPipeline(&engVkRuntimeInfo);                          //depends on eng_createShaderModule and eng_createImageViews and eng_createDescriptorPoolAndSets
     eng_createFramebuffers(&engVkRuntimeInfo);                              //depends on eng_createRenderPass   and eng_createImageViews
     eng_createCommandPool(&engVkRuntimeInfo);                               //depends on eng_createDevice
     eng_load_static_models(&engVkRuntimeInfo);                              //depends on eng_createCommandPool and creates vertex buffer
-    eng_createDescriptorPoolAndSets(&engVkRuntimeInfo);                     //depends on
+    eng_writeDescriptorSets(&engVkRuntimeInfo);                             //depends on eng_load_static_models
     eng_createRenderCommandBuffers(&engVkRuntimeInfo);                      //depends on eng_createCommandPool and eng_createFramebuffers and eng_load_static_models and createPipeline
     eng_createSynchronizationPrimitives(&engVkRuntimeInfo);
     dprintf(DBGT_INFO,"Got here");

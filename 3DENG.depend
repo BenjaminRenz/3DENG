@@ -1,13 +1,14 @@
 # depslib dependency file v1.0
-1612150017 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
+1612557375 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
 	<stdio.h>
 	<stdlib.h>
 	<string.h>
 	<stdint.h>
 	"vulkan/vulkan.h"
 	"shaderc/shaderc.h"
-	"inc/linmath.h"
 	"submodules/glfw/glfw3.h"
+	"submodules/mathHelper/mathHelper.h"
+	"submodules/linmath/linmath.h"
 	"submodules/xmlReader/debug.h"
 	"submodules/xmlReader/xmlReader.h"
 	"submodules/xmlReader/stringutils.h"
@@ -20,7 +21,7 @@
 
 1605580341 /stringutils.h>
 
-1612148878 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.c
+1612553614 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.c
 	"stringutils.h"
 	"xmlReader.h"
 	<stdlib.h>
@@ -28,15 +29,16 @@
 	<math.h>
 	<xmlReader/debug.h>
 	<xmlReader/stringutils.h>
+	<mathHelper/mathHelper.h>
 
 1605725052 
 
-1611513387 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.h
+1612554643 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.h
 	<stdarg.h>
 	<stddef.h>
 	<stdint.h>
 
-1612148561 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader.c
+1612552538 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader.c
 	<stdio.h>
 	<stdlib.h>
 	<stdarg.h>
@@ -52,7 +54,7 @@
 1604418712 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\debug.h
 	<stdio.h>
 
-1609698122 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader_matchhelper.h
+1612549146 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader_matchhelper.h
 
 1605752689 source:/home/badmin/Desktop/gitprojects/3DENG/main.c
 	<stdio.h>
@@ -196,4 +198,14 @@
 	<string.h>
 	<math.h>
 	<string.h>
+
+1612398786 c:\users\badmin\desktop\gitprojects\3deng\submodules\mathhelper\mathhelper.h
+
+1611690284 c:\users\badmin\desktop\gitprojects\3deng\submodules\linmath\linmath.h
+	<string.h>
+	<math.h>
+	<string.h>
+
+1612400241 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\mathhelper\mathhelper.c
+	<stdint.h>
 
