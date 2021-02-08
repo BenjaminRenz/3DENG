@@ -1,0 +1,203 @@
+#include "bmpLoader/bmpLoader.h"
+#include "debugPrint/debugPrint.h"
+#include <stdlib.h> //for abs and fopen
+
+
+//since bitmap is little endian we might need to convert it to our system's endianess
+uint32_t _bmpLoader_uint32_t_from_le_file(FILE* file, int bigEndianFlag) {
+    uint32_t* dataP=0;
+    if(fread(dataP, 1, 4, file) < 4){
+        dprintf(DBGT_ERROR,"unexpected end of bmp file while reading uint32_t");
+        exit(1);
+    }
+    if(bigEndianFlag){
+        (*dataP)=(((*dataP)>>24)&0x000000ff) |
+                 (((*dataP)>>8) &0x0000ff00) |
+                 (((*dataP)<<8) &0x00ff0000) |
+                 (((*dataP)<<24)&0xff000000); //big endian
+    }
+    return (*dataP);
+}
+
+uint16_t _bmpLoader_uint16_t_from_le_file(FILE* file, int bigEndianFlag) {
+    uint16_t* dataP=0;
+    if(fread(dataP, 1, 2, file) < 2){
+        dprintf(DBGT_ERROR,"unexpected end of bmp file while reading uint16_t");
+        exit(1);
+    }
+    if(bigEndianFlag){
+        (*dataP) = (((*dataP)<<8)&0xff00)|(((*dataP)>>8)&0x00ff);
+    }
+    return (*dataP);
+}
+
+//output format can be specified as "ARGB" or "BGGR" or "RGB0" for padding
+void bmpLoader_load(char* filepathString,char* outputFormartString,uint32_t** imageDataReturnPP,int32_t* widthReturnP,int32_t* heightReturnP) {
+    FILE* FileP = fopen(filepathString, "rb");
+    if(FileP == NULL) {
+        dprintf(DBGT_ERROR,"No file under path %s found", filepathString);
+        exit(1);
+    }
+
+    fseek(FileP, 0, SEEK_SET);   //Jump to beginning of file
+    int bigEndianFlag=0;
+    uint16_t bfType=_bmpLoader_uint16_t_from_le_file(FileP,bigEndianFlag);
+    if(bfType==0x4D42){
+        dprintf(DBGT_INFO,"Host is little endian");
+    }else if(bfType==0x424D){
+        dprintf(DBGT_INFO,"Host is big endian");
+        bigEndianFlag=1;
+    }else{
+        dprintf(DBGT_ERROR,"File %s is not an BMP", filepathString);
+        exit(1);
+    }
+    fseek(FileP, 10, SEEK_SET); //Jump to 10bytes after the start of the file
+    uint32_t BitmapOffset = _bmpLoader_uint32_t_from_le_file(FileP,bigEndianFlag);
+    uint32_t biWidth = _bmpLoader_uint32_t_from_le_file(FileP,bigEndianFlag);
+    if(biWidth!=124){
+        dprintf(DBGT_ERROR,"BitmapHeader is not BITMAPV5HEADER");
+        exit(1);
+    }
+    uint32_t tempHeight=_bmpLoader_uint32_t_from_le_file(FileP,bigEndianFlag);
+    int32_t height=*((int32_t*)(&tempHeight));//Important leave height as int32_t, because negative height means top down BMP
+    uint32_t absHeight=abs(height);
+    *heightReturnP=absHeight;
+    uint32_t width=_bmpLoader_uint32_t_from_le_file(FileP,bigEndianFlag);
+    *widthReturnP=width;
+    dprintf(DBGT_INFO,"BMP resolution %d x %d", width, abs(height));
+    uint16_t biPlanes=_bmpLoader_uint16_t_from_le_file(FileP,bigEndianFlag);
+    if(biPlanes!=1) {
+        dprintf(DBGT_ERROR,"Unsupported plane count");
+        exit(1);
+    }
+    uint16_t BitmapColorDepth = _bmpLoader_uint16_t_from_le_file(FileP,bigEndianFlag);
+    unsigned char ColorsPerPixel=BitmapColorDepth/8;
+    switch(ColorsPerPixel){
+        case 3:
+            dprintf(DBGT_INFO,"RGB data");
+        break;
+        case 4:
+            dprintf(DBGT_INFO,"RGBA data");
+        break;
+        default:
+            dprintf(DBGT_ERROR,"Unsupported ColorDepth");
+        exit(1);
+        break;
+    }
+
+    uint32_t sizeOfUnalignedRowInBytes=ColorsPerPixel*width;
+    uint32_t sizeOfAlignedRowInBytes=sizeOfUnalignedRowInBytes;
+    //Bitmap data rows are padded to align with 4bytes boundary
+    if(sizeOfAlignedRowInBytes%4){
+        sizeOfAlignedRowInBytes+=(1-(sizeOfAlignedRowInBytes%4));
+    }
+    uint32_t BitmapSizeCalculated=sizeOfAlignedRowInBytes*absHeight;
+
+    uint32_t BitmapCompression=_bmpLoader_uint32_t_from_le_file(FileP,bigEndianFlag);
+    switch(BitmapCompression){
+    case 0:
+        dprintf(DBGT_ERROR,"Compression type: none/BI_RGB");
+        exit(1);
+    case 3:
+        dprintf(DBGT_INFO,"Compression type: Bitfields/BI_BITFIELDS");
+        break;
+    default:
+        dprintf(DBGT_ERROR,"Unsupported compression");
+        exit(1);
+    }
+    uint32_t BitmapImageSize = _bmpLoader_uint32_t_from_le_file(FileP,bigEndianFlag);
+    if(BitmapImageSize && (BitmapImageSize != BitmapSizeCalculated)) {
+        dprintf(DBGT_ERROR,"image size not matching with predicted size");
+        exit(1);
+    }
+    fseek(FileP, 8, SEEK_CUR);       //skip over PixelsPerMeter
+    uint32_t BitmapColorsInPalette = _bmpLoader_uint32_t_from_le_file(FileP,bigEndianFlag);
+    if(BitmapColorsInPalette){
+        dprintf(DBGT_ERROR,"Color tables are not supported");
+        exit(1);
+    }
+    fseek(FileP, 4, SEEK_CUR);   //skip over important color count
+    char channelBitmaskOrder[4]={'R','G','B','A'};  //in which order the channel masks occur in the bmp file
+    char colorChannelSrcMask[4]={'R','G','B',0};    //initialize for compression==0 (RGB)
+    char colorChannelDstMask[4]={0};
+    for(int OutputFormatCharIdx=0;OutputFormatCharIdx<4;OutputFormatCharIdx++){
+        char ChannelNameChar=outputFormartString[OutputFormatCharIdx];
+        if(!ChannelNameChar){
+            break;
+        }
+        if(ChannelNameChar=='A'||
+           ChannelNameChar=='R'||
+           ChannelNameChar=='G'||
+           ChannelNameChar=='B'){
+            colorChannelDstMask[OutputFormatCharIdx]=ChannelNameChar;
+        }else if(ChannelNameChar=='0'){
+            //colorChannelDstMask is already zero initialized
+        }else{
+            dprintf(DBGT_ERROR,"invalid outputFormartString");
+            exit(1);
+        }
+    }
+
+    if(BitmapCompression == 3) { //bitfields for rgba TODO check if this works????
+        for(int channelIdx = 0; channelIdx < 4; channelIdx++) {
+            uint32_t color_channel_mask = _bmpLoader_uint32_t_from_le_file(FileP,bigEndianFlag);
+            switch(color_channel_mask) {   //read shift value for channelIdx
+                case 0xFF000000:
+                    colorChannelSrcMask[3] = channelBitmaskOrder[channelIdx];
+                    break;
+                case 0x00FF0000:
+                    colorChannelSrcMask[2] = channelBitmaskOrder[channelIdx];
+                    break;
+                case 0x0000FF00:
+                    colorChannelSrcMask[1] = channelBitmaskOrder[channelIdx];
+                    break;
+                case 0x000000FF:
+                    colorChannelSrcMask[0] = channelBitmaskOrder[channelIdx];
+                    break;
+                default:
+                    dprintf(DBGT_ERROR,"Error: Invalid bitmask");
+                    exit(1);
+                    break;
+            }
+        }
+    }
+
+    uint8_t* imageDataTempP = malloc(BitmapSizeCalculated);
+    uint32_t* imageOutputP = malloc(sizeof(uint32_t)*width*absHeight);
+    dprintf(DBGT_INFO,"Info: BMP data offset %d", BitmapOffset);
+    fseek(FileP, BitmapOffset, SEEK_SET);   //jump to pixel data
+    if(fread(imageDataTempP, BitmapSizeCalculated, 1, FileP) == 0) {
+        dprintf(DBGT_ERROR,"Reading image data failed");
+        exit(1);
+    }
+
+    uint32_t readBufferOffset=0;
+    for(uint32_t outputColumnPos=0;outputColumnPos<absHeight;outputColumnPos++){
+        for(uint32_t outputRowPos=0;outputRowPos<width;outputRowPos++){
+            for(unsigned char color=0;color<ColorsPerPixel;color++){
+                uint32_t currentColorData=imageDataTempP[readBufferOffset++];
+                unsigned char colorSrcName=colorChannelSrcMask[color];
+                uint32_t resultPixelData=0;
+                for(unsigned char colorDstIdx=0;colorDstIdx<(unsigned char)(sizeof(colorChannelDstMask)/sizeof(colorChannelDstMask[0]));colorDstIdx++){
+                    if(colorSrcName==colorChannelDstMask[colorDstIdx]){
+                        resultPixelData|=(currentColorData<<(colorDstIdx*8));
+                    }
+                }
+                //top down or bottom up image
+                if(height<0){
+                    imageOutputP[outputColumnPos*width+outputRowPos]=resultPixelData;
+                }else{
+                    imageOutputP[(absHeight-outputColumnPos)*width+outputRowPos]=resultPixelData;
+                }
+            }
+            //realign at end of row
+            if((readBufferOffset%sizeOfAlignedRowInBytes)>=sizeOfUnalignedRowInBytes){
+                readBufferOffset+=sizeOfAlignedRowInBytes-sizeOfUnalignedRowInBytes;
+            }
+        }
+    }
+    free(imageDataTempP);
+    fclose(FileP);
+    *imageDataReturnPP=imageOutputP;
+    return;
+}

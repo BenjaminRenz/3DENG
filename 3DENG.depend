@@ -1,17 +1,17 @@
 # depslib dependency file v1.0
-1612557375 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
+1612760330 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
 	<stdio.h>
 	<stdlib.h>
 	<string.h>
 	<stdint.h>
 	"vulkan/vulkan.h"
 	"shaderc/shaderc.h"
-	"submodules/glfw/glfw3.h"
-	"submodules/mathHelper/mathHelper.h"
-	"submodules/linmath/linmath.h"
-	"submodules/xmlReader/debug.h"
-	"submodules/xmlReader/xmlReader.h"
-	"submodules/xmlReader/stringutils.h"
+	"glfw/glfw3.h"
+	"mathHelper/mathHelper.h"
+	"linmath/linmath.h"
+	<debugPrint/debugPrint.h>
+	"xmlReader/xmlReader.h"
+	"daeLoader/daeLoader.h"
 
 1605726241 s/xmlReader/stringutils.h"
 
@@ -21,13 +21,13 @@
 
 1605580341 /stringutils.h>
 
-1612553614 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.c
+1612651534 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.c
 	"stringutils.h"
 	"xmlReader.h"
 	<stdlib.h>
 	<string.h>
 	<math.h>
-	<xmlReader/debug.h>
+	<debugPrint/debugPrint.h>
 	<xmlReader/stringutils.h>
 	<mathHelper/mathHelper.h>
 
@@ -38,7 +38,7 @@
 	<stddef.h>
 	<stdint.h>
 
-1612552538 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader.c
+1612651519 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader.c
 	<stdio.h>
 	<stdlib.h>
 	<stdarg.h>
@@ -47,7 +47,7 @@
 	<setjmp.h>
 	"xmlReader/xmlReader.h"
 	"xmlReader/xmlReader_matchHelper.h"
-	"xmlReader/debug.h"
+	"debugPrint/debugPrint.h"
 
 1605725048 /debug.h"
 
@@ -207,5 +207,24 @@
 	<string.h>
 
 1612400241 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\mathhelper\mathhelper.c
+	<stdint.h>
+
+1604418712 c:\users\badmin\desktop\gitprojects\3deng\submodules\debugprint\debugprint.h
+	<stdio.h>
+
+1612760523 c:\users\badmin\desktop\gitprojects\3deng\submodules\daeloader\daeloader.h
+
+1612761063 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\daeloader\daeloader.c
+	"daeLoader/daeLoader.h"
+	"xmlReader/xmlReader.h"
+	"debugPrint/debugPrint.h"
+	"stdlib.h"
+
+1612760563 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\bmploader\bmploader.c
+	"bmpLoader/bmpLoader.h"
+	"debugPrint/debugPrint.h"
+	<stdlib.h>
+
+1612761161 c:\users\badmin\desktop\gitprojects\3deng\submodules\bmploader\bmploader.h
 	<stdint.h>
 

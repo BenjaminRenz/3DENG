@@ -6,13 +6,12 @@
 #include "vulkan/vulkan.h"
 #include "shaderc/shaderc.h"
 
-#include "submodules/glfw/glfw3.h"
-#include "submodules/mathHelper/mathHelper.h"      //for countBitsInUint32
-#include "submodules/linmath/linmath.h"
-#include "submodules/xmlReader/debug.h"
-#include "submodules/xmlReader/xmlReader.h"
-#include "submodules/xmlReader/stringutils.h"
-
+#include "glfw/glfw3.h"
+#include "mathHelper/mathHelper.h"      //for countBitsInUint32
+#include "linmath/linmath.h"
+#include <debugPrint/debugPrint.h>
+#include "xmlReader/xmlReader.h"
+#include "daeLoader/daeLoader.h"
 
 #define CHK_VK(function)                                                \
 do {                                                                    \
@@ -38,63 +37,73 @@ struct xmlTreeElement* eng_get_eng_setupxml(char* FilePath,int debug_enabled);
 
 
 
-struct DataFromDae{
-    struct DynamicList* CombinedPsNrUvDlP;
-    struct DynamicList* IndexingDlP;
-};
 
-struct eng3DPINBuffer{
-    VkDeviceSize            TotalSizeWithPadding;
 
-    VkBuffer                PNUIBufferHandle;
-    VkMemoryRequirements    PNUIBufferMemoryRequirements;
 
-    VkDeviceSize            PNUBufferSize;
-    VkDeviceSize            IndexBufferSize;        //combines position and normal indices for each vertex
+struct engBufferHandle{
+    //this field must be filled before buffer handle creation
+    VkDeviceSize            ContentSizeInBytes;
+    //the fields below are while creating the buffer handle
+    VkBuffer                BufferHandle;
+    VkMemoryRequirements    MemoryRequirements;
+    //TODO
+    VkMemoryPropertyFlags   MemoryFlags;
+    //the fields below are only filled while allocating binding the buffer to memory
+    VkDeviceSize            OffsetInMemoryInBytes;
+    VkDeviceMemory          Memory;
 };
 
 struct eng3dObject{
-    struct DataFromDae    daeData;
-    struct eng3DPINBuffer stagingBuffers;
-    struct eng3DPINBuffer deviceBuffers;
+    struct DataFromDae      daeData;
+    struct engBufferHandle* writeVertexBufferP;
+    struct engBufferHandle* readVertexBufferP;  //readVertexBufferP can be the same pointer as writeVertexBufferP for unified memory
+    VkDeviceSize PosNormUvInBufOffset;
+    VkDeviceSize IdxInBufOffset;
+    uint32_t vertexCount;
+};
+
+
+
+struct _engExtensionsAndLayers{
+    uint32_t    InstExtensionCount;
+    char**      InstExtensionNamesPP;
+    uint32_t    InstLayerCount;
+    char**      InstLayerNamesPP;
+
+    uint32_t    DevExtensionCount;
+    char**      DevExtensionNamesPP;
+    uint32_t    DevLayerCount;
+    char**      DevLayerNamesPP;
 };
 
 struct VulkanRuntimeInfo{
     GLFWwindow* mainWindowP;
-
-    VkInstance instance;
-    uint32_t InstExtensionCount;
-    char** InstExtensionNamesPP;
-    uint32_t InstLayerCount;
-    char** InstLayerNamesPP;
-
+    VkDevice device;
     VkPhysicalDevice* physAvailDevicesP;
     uint32_t physDeviceCount;
     VkPhysicalDevice physSelectedDevice;
 
-    VkDevice device;
-    uint32_t DevExtensionCount;
-    char** DevExtensionNamesPP;
-    uint32_t DevLayerCount;
-    char** DevLayerNamesPP;
+    VkInstance instance;
+    struct _engExtensionsAndLayers;
 
     uint32_t graphics_queue_family_idx;
     VkQueue  graphics_queue;
 
-    VkSurfaceKHR surface;
-    VkSwapchainKHR swapChain;
-    uint32_t imagesInFlightCount;
-    VkImage* swapChainImagesP;
-    VkExtent2D swapChainImageExtent;
-    VkSurfaceFormatKHR swapChainFormat;
-    VkImageView* swapChainImageViewsP;
+    VkSurfaceKHR        surface;
+
+    VkSwapchainKHR      swapChain;
+    uint32_t            imagesInFlightCount;
+    VkImage*            swapChainImagesP;
+    VkExtent2D          swapChainImageExtent;
+    VkSurfaceFormatKHR  swapChainFormat;
+    VkImageView*        swapChainImageViewsP;
 
     VkRenderPass renderPass;
 
     VkShaderModule VertexShaderModule;
     VkShaderModule FragmentShaderModule;
 
-    VkPipeline graphicsPipeline;
+    VkPipeline       graphicsPipeline;
     VkPipelineLayout graphicsPipelineLayout;
 
     VkFramebuffer* FramebufferP;
@@ -112,10 +121,12 @@ struct VulkanRuntimeInfo{
     VkSemaphore* renderFinishedSemaphoreP;
     VkFence*     ImageAlreadyProcessingFenceP;
 
-    VkDeviceMemory StaticPINBufferMemory;
-    VkBuffer UniformBufferHandle;
-    VkDeviceMemory UniformBufferMemory;
+    struct engBufferHandle FastUpdatingUniformBuffer;
+    struct engBufferHandle DeviceVertexBuffer;
 };
+
+VkCommandBuffer _eng_cmdBuf_startSingleUse(struct VulkanRuntimeInfo* vkRuntimeInfoP);
+void _eng_cmdBuf_endAndSubmitSingleUse(struct VulkanRuntimeInfo* vkRuntimeInfoP,VkCommandBuffer SingleUseBufferP);
 
 struct eng3dObject ObjectToBeLoaded;
 
@@ -187,164 +198,17 @@ void eng_createShaderModule(struct VulkanRuntimeInfo* vkRuntimeInfoP,char* Shade
 
 
 
-void loadDaeObject(char* filePath,char* meshId,struct DataFromDae* outputDataP){
-    dprintf(DBGT_INFO,"%llu,%llu,%llu,%llu",sizeof(uint32_t),sizeof(void*),sizeof(void**),sizeof(unsigned int));
-    struct DynamicList* meshIdDlp=Dl_utf32_fromString(meshId);
 
-    FILE* cylinderDaeFileP=fopen(filePath,"rb");
-    struct xmlTreeElement* xmlDaeRootP=0;
-    readXML(cylinderDaeFileP,&xmlDaeRootP);
-    fclose(cylinderDaeFileP);
-    //printXMLsubelements(xmlDaeRootP);
-
-    struct xmlTreeElement* xmlColladaElementP=getNthChildElmntOrChardata(xmlDaeRootP,0);
-    struct xmlTreeElement* xmlLibGeoElementP=getFirstSubelementWithASCII(xmlColladaElementP,"library_geometries",NULL,NULL,0,0);
-    struct xmlTreeElement* xmlGeoElementP=getFirstSubelementWithASCII(xmlLibGeoElementP,"geometry","id",DlDuplicate(meshIdDlp),0,0); //does  not work?
-    if(!xmlGeoElementP){
-        dprintf(DBGT_ERROR,"The collada file does not contain a mesh with the name %s",meshId);
-        exit(1);
-    }
-    struct xmlTreeElement* xmlMeshElementP=getFirstSubelementWithASCII(xmlGeoElementP,"mesh",NULL,NULL,0,0);
-
-    //Get triangles xml element
-    struct xmlTreeElement* xmlTrianglesP=getFirstSubelementWithASCII(xmlMeshElementP,"triangles",NULL,NULL,0,0);
-    struct DynamicList* TrianglesCountString=getValueFromKeyNameASCII(xmlTrianglesP->attributes,"count");
-    struct DynamicList* TrianglesCount=Dl_utf32_to_Dl_int64_freeArg1(Dl_CMatch_create(2,' ',' '),TrianglesCountString);
-    dprintf(DBGT_INFO,"Model has %lld triangles",((int64_t*)TrianglesCount->items)[0]);
-
-    //get triangle position, normal, uv index list
-    struct xmlTreeElement* xmlTrianglesOrderP=getFirstSubelementWithASCII(xmlTrianglesP,"p",NULL,NULL,0,0);
-    if(!xmlTrianglesOrderP){
-        dprintf(DBGT_ERROR,"No Triangles Order list found");exit(1);
-    }
-    struct xmlTreeElement* xmlTrianglesOrderContentP=getNthChildElmntOrChardata(xmlTrianglesOrderP,0);
-    if(!xmlTrianglesOrderContentP->content->itemcnt){
-        dprintf(DBGT_ERROR,"Triangles Order List empty");exit(1);
-    }
-    struct DynamicList* TempTriangleIndexDlP=Dl_utf32_to_Dl_int64_freeArg1(Dl_CMatch_create(2,' ',' '),xmlTrianglesOrderContentP->content);
-
-    //Define structures to copy read data to
-    struct DynamicList* PosDlP;
-    struct DynamicList* PosIndexDlP;
-    struct DynamicList* NormDlP;
-    struct DynamicList* NormIndexDlP;
-    struct DynamicList* UvDlP;
-    struct DynamicList* UvIndexDlP;
-
-    //Get input accessor and position,vertex,normal source
-    struct DynamicList* InputXmlTrianglesP=getAllSubelementsWithASCII(xmlTrianglesP,"input",NULL,NULL,0,0);
-    for(uint32_t inputsemantic=0;inputsemantic<InputXmlTrianglesP->itemcnt;inputsemantic++){
-        struct DynamicList* semanticStringDlP=getValueFromKeyNameASCII(((struct xmlTreeElement**)(InputXmlTrianglesP->items))[inputsemantic]->attributes,"semantic");
-        struct DynamicList* offsetStringDlP=getValueFromKeyNameASCII(((struct xmlTreeElement**)InputXmlTrianglesP->items)[inputsemantic]->attributes,"offset");
-        struct DynamicList* offsetNumbersDlP=Dl_utf32_to_Dl_int64(Dl_CMatch_create(2,' ',' '),offsetStringDlP);
-        struct DynamicList* sourceStringWithHashtagDlP=getValueFromKeyNameASCII(((struct xmlTreeElement**)InputXmlTrianglesP->items)[inputsemantic]->attributes,"source");
-        struct DynamicList* sourceStringDlP=Dl_utf32_Substring(sourceStringWithHashtagDlP,1,-1);
-        //get corresponding source data
-        struct xmlTreeElement* refXmlElmntP=getFirstSubelementWithASCII(xmlMeshElementP,NULL,"id",sourceStringDlP,0,0);
-        //Handle VERTEX special case, which has to jump to POSITIONS again
-        struct xmlTreeElement* sourceXmlElmntP;
-        if(Dl_utf32_compareEqual_freeArg2(refXmlElmntP->name,Dl_utf32_fromString("vertices"))){
-            refXmlElmntP=getFirstSubelementWithASCII(refXmlElmntP,"input",NULL,NULL,0,0);
-            sourceStringWithHashtagDlP=getValueFromKeyNameASCII(refXmlElmntP->attributes,"source");
-            sourceStringDlP=Dl_utf32_Substring(sourceStringWithHashtagDlP,1,-1);
-            sourceXmlElmntP=getFirstSubelementWithASCII(xmlMeshElementP,NULL,"id",sourceStringDlP,0,0);
-        }else{
-            sourceXmlElmntP=refXmlElmntP;
-        }
-        struct xmlTreeElement* floatArrayXmlElementP=getFirstSubelementWithASCII(sourceXmlElmntP,"float_array",NULL,NULL,0,1);
-        struct xmlTreeElement* floatArrayCharDataP=getFirstSubelementWith(floatArrayXmlElementP,NULL,NULL,NULL,xmltype_chardata,1);
-        struct DynamicList* sourceFloatArrayDlP=Dl_utf32_to_Dl_float_freeArg123(Dl_CMatch_create(2,' ',' '),Dl_CMatch_create(4,'e','e','E','E'),Dl_CMatch_create(4,'.','.',',',','),floatArrayCharDataP->content);
-        //check if FloatArray length corresponds with the expected count specified in the xml file
-        struct DynamicList* countStringDlP=getValueFromKeyNameASCII(floatArrayXmlElementP->attributes,"count");
-        struct DynamicList* countIntArrayDlP=Dl_utf32_to_Dl_int64_freeArg1(Dl_CMatch_create(2,' ',' '),countStringDlP);
-        if(((int64_t*)countIntArrayDlP->items)[0]!=sourceFloatArrayDlP->itemcnt){
-            dprintf(DBGT_ERROR,"Missmatch in supplied source float count, count says %lld, found were %d",((int64_t*)countIntArrayDlP)[0],sourceFloatArrayDlP->itemcnt);
-        }
-
-        uint32_t offsetInIdxArray=((int64_t*)(offsetNumbersDlP->items))[0];
-        DlDelete(offsetNumbersDlP);
-        uint32_t stridePerVertex=InputXmlTrianglesP->itemcnt;
-        uint32_t numberOfAllIndices=TempTriangleIndexDlP->itemcnt;
-        uint32_t numberOfVertexIndices=numberOfAllIndices/stridePerVertex;
-        struct DynamicList* CurrentOutputArrayDlP=0;
-        if(Dl_utf32_compareEqual_freeArg2(semanticStringDlP,Dl_utf32_fromString("VERTEX"))){
-            //Create and fill PosIndexDlP
-            PosIndexDlP=DlAlloc(sizeof(uint32_t),DlType_int32,numberOfVertexIndices,NULL);
-            CurrentOutputArrayDlP=PosIndexDlP;
-            PosDlP=sourceFloatArrayDlP;
-        }else if(Dl_utf32_compareEqual_freeArg2(semanticStringDlP,Dl_utf32_fromString("NORMAL"))){
-            //Create and fill NormIndexDlP
-            NormIndexDlP=DlAlloc(sizeof(uint32_t),DlType_int32,numberOfVertexIndices,NULL);
-            CurrentOutputArrayDlP=NormIndexDlP;
-            NormDlP=sourceFloatArrayDlP;
-        }else if(Dl_utf32_compareEqual_freeArg2(semanticStringDlP,Dl_utf32_fromString("TEXCOORD"))){
-            //Create and fill UvIndexDlP
-            UvIndexDlP=DlAlloc(sizeof(uint32_t),DlType_int32,numberOfVertexIndices,NULL);
-            CurrentOutputArrayDlP=UvIndexDlP;
-            UvDlP=sourceFloatArrayDlP;
-        }else{
-            dprintf(DBGT_ERROR,"Unknown semantic type");
-            exit(1);
-        }
-        for(uint32_t IdxInIndexArray=0;IdxInIndexArray<numberOfVertexIndices;IdxInIndexArray++){
-            ((int32_t*)(CurrentOutputArrayDlP->items))[IdxInIndexArray]=((int64_t*)(TempTriangleIndexDlP->items))[stridePerVertex*IdxInIndexArray+offsetInIdxArray];
-        }
-    }
-
-    //Since vulkan does not support individual index buffers we need to list vertices and combine only the one with the same position& normal& uv
-    //DataBuffer will be layed out like vec4 pos; vec4 norm; vec2 UV; ...
-    struct DynamicList* CombinedPsNrUvDlP=DlAlloc(sizeof(float),DlType_float,(4+4+2)*PosIndexDlP->itemcnt,NULL);
-    struct DynamicList* NewIndexBuffer=DlAlloc(sizeof(uint32_t),DlType_uint32,PosIndexDlP->itemcnt,NULL);
-    uint32_t uniqueVertices=0;
-    for(uint32_t vertex=0;vertex<PosIndexDlP->itemcnt;vertex++){
-        uint32_t posIdx= ((uint32_t*)PosIndexDlP->items) [vertex];
-        uint32_t normIdx=((uint32_t*)NormIndexDlP->items)[vertex];
-        uint32_t uvIdx=  ((uint32_t*)UvIndexDlP->items)  [vertex];
-        uint32_t testUniqueVertex;
-        for(testUniqueVertex=0;testUniqueVertex<uniqueVertices;testUniqueVertex++){
-            //Compare new vertex read from PosDlP, NormDlP and UvDlP with already read vertices in CombinedPsNrUvDlP
-            if(   ((float*)PosDlP->items) [3*vertex  ]==((float*)CombinedPsNrUvDlP->items)[10*testUniqueVertex  ]
-                &&((float*)PosDlP->items) [3*vertex+1]==((float*)CombinedPsNrUvDlP->items)[10*testUniqueVertex+1]
-                &&((float*)PosDlP->items) [3*vertex+2]==((float*)CombinedPsNrUvDlP->items)[10*testUniqueVertex+2]
-                &&((float*)NormDlP->items)[3*vertex  ]==((float*)CombinedPsNrUvDlP->items)[10*testUniqueVertex+4]
-                &&((float*)NormDlP->items)[3*vertex+1]==((float*)CombinedPsNrUvDlP->items)[10*testUniqueVertex+5]
-                &&((float*)NormDlP->items)[3*vertex+2]==((float*)CombinedPsNrUvDlP->items)[10*testUniqueVertex+6]
-                &&((float*)UvDlP->items)  [3*vertex]  ==((float*)CombinedPsNrUvDlP->items)[10*testUniqueVertex+8]
-                &&((float*)UvDlP->items)  [3*vertex+1]==((float*)CombinedPsNrUvDlP->items)[10*testUniqueVertex+9]){
-                break;
-            }
-        }
-        //
-        ((uint32_t*)NewIndexBuffer->items)[uniqueVertices]=testUniqueVertex;
-        //for loop terminated prematurely and we have found a duplicate vertex
-        if(testUniqueVertex==uniqueVertices){
-            //Add vertex into combined buffer with padding
-            ((float*)CombinedPsNrUvDlP->items)[10*uniqueVertices  ]=((float*)PosDlP->items) [3*vertex  ];
-            ((float*)CombinedPsNrUvDlP->items)[10*uniqueVertices+1]=((float*)PosDlP->items) [3*vertex+1];
-            ((float*)CombinedPsNrUvDlP->items)[10*uniqueVertices+2]=((float*)PosDlP->items) [3*vertex+2];
-            ((float*)CombinedPsNrUvDlP->items)[10*uniqueVertices+4]=((float*)NormDlP->items)[3*vertex  ];
-            ((float*)CombinedPsNrUvDlP->items)[10*uniqueVertices+5]=((float*)NormDlP->items)[3*vertex+1];
-            ((float*)CombinedPsNrUvDlP->items)[10*uniqueVertices+6]=((float*)NormDlP->items)[3*vertex+2];
-            ((float*)CombinedPsNrUvDlP->items)[10*uniqueVertices+8]=((float*)UvDlP->items)  [3*vertex  ];
-            ((float*)CombinedPsNrUvDlP->items)[10*uniqueVertices+9]=((float*)UvDlP->items)  [3*vertex+1];
-            uniqueVertices++;
-        }
-    }
-    DlResize(&CombinedPsNrUvDlP,10*uniqueVertices);  //Discard preallocated data which has been left empty because of dulplicat vertices
-    DlResize(&NewIndexBuffer,uniqueVertices);
-    outputDataP->CombinedPsNrUvDlP=CombinedPsNrUvDlP;
-    outputDataP->IndexingDlP=NewIndexBuffer;
-}
 
 //ToDo do actual memory usage calculations for each heap
-int32_t findBestMemoryType(struct VulkanRuntimeInfo* vkRuntimeInfoP,VkMemoryPropertyFlags forbiddenBitfield,VkMemoryPropertyFlags requiredBitfield, VkMemoryPropertyFlags uprankBitfield, VkMemoryPropertyFlags* ReturnBitfieldP, VkDeviceSize minsize){
+int32_t _eng_Memory_findBestType(struct VulkanRuntimeInfo* vkRuntimeInfoP,VkMemoryPropertyFlags forbiddenBitfield,VkMemoryPropertyFlags requiredBitfield, VkMemoryPropertyFlags uprankBitfield, VkMemoryPropertyFlags downrankBitfield,VkMemoryPropertyFlags* ReturnBitfieldP, VkDeviceSize minsize){
     //Get information about all available memory types
     VkPhysicalDeviceMemoryProperties DeviceMemProperties;
     vkGetPhysicalDeviceMemoryProperties(vkRuntimeInfoP->physSelectedDevice,&DeviceMemProperties);
     int32_t bestRankingMemoryTypeIdx=-1;
     uint32_t bestRanking=0;
     for(uint32_t MemoryTypeIdx=0;MemoryTypeIdx<DeviceMemProperties.memoryTypeCount;MemoryTypeIdx++){
-        uint32_t currentRank=1;
+        uint32_t currentRank=1+sizeof(uint32_t)*4;
         //Check if memory has the required size
         uint32_t CurrentMemoryTypeHeapIdx=DeviceMemProperties.memoryTypes[MemoryTypeIdx].heapIndex;
         if(DeviceMemProperties.memoryHeaps[CurrentMemoryTypeHeapIdx].size<minsize){
@@ -361,6 +225,7 @@ int32_t findBestMemoryType(struct VulkanRuntimeInfo* vkRuntimeInfoP,VkMemoryProp
 
         //Uprank memory that has VkMemoryPropertyFlags uprankBitfield set
         currentRank+=countBitsInUint32(DeviceMemProperties.memoryTypes[MemoryTypeIdx].propertyFlags&uprankBitfield);
+        currentRank-=countBitsInUint32(DeviceMemProperties.memoryTypes[MemoryTypeIdx].propertyFlags&downrankBitfield);
         if(currentRank>bestRanking){
             bestRanking=currentRank;
             bestRankingMemoryTypeIdx=(int32_t)MemoryTypeIdx;//we don't expect memory types over 2^31, so use the extra bit for error handling
@@ -376,66 +241,48 @@ int32_t findBestMemoryType(struct VulkanRuntimeInfo* vkRuntimeInfoP,VkMemoryProp
     return bestRankingMemoryTypeIdx;
 }
 
-
-void eng_ceatePINBufferAndCalcSize(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct eng3DPINBuffer* PINBuffersP,VkBufferUsageFlags usageTransferSourceOrDest){
-
-    VkBufferCreateInfo BufferInfo={0};
-    BufferInfo.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    BufferInfo.usage=
-        usageTransferSourceOrDest|VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT|
-        VK_BUFFER_USAGE_INDEX_BUFFER_BIT|VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    BufferInfo.sharingMode=VK_SHARING_MODE_EXCLUSIVE;
-
-    //Create combined Position-, Buffer
-    BufferInfo.size=
-        PINBuffersP->PNUBufferSize+
-        PINBuffersP->IndexBufferSize;
-
-    CHK_VK(vkCreateBuffer(vkRuntimeInfoP->device,&BufferInfo,NULL,&(PINBuffersP->PNUIBufferHandle)));
-    //get memory requirements
-    vkGetBufferMemoryRequirements(vkRuntimeInfoP->device,PINBuffersP->PNUIBufferHandle,&(PINBuffersP->PNUIBufferMemoryRequirements));
-    //Check if already aligned
-    if((PINBuffersP->PNUIBufferMemoryRequirements.size)%(PINBuffersP->PNUIBufferMemoryRequirements.alignment)){
-        //calculate multiples of alignment
-        PINBuffersP->TotalSizeWithPadding=((PINBuffersP->PNUIBufferMemoryRequirements.size/PINBuffersP->PNUIBufferMemoryRequirements.alignment)+1);
-        PINBuffersP->TotalSizeWithPadding*=PINBuffersP->PNUIBufferMemoryRequirements.alignment;
-    }else{
-        PINBuffersP->TotalSizeWithPadding=PINBuffersP->PNUIBufferMemoryRequirements.size;
-    }
-}
-
-/*void paddAlign(void* inputDataP, void* outputDataP, uint32_t numberOfChunks, size_t sizeOfChunk, size_t sizeOfAlignedChunk){
-    for(uint32_t elementIdx=0;elementIdx<numberOfChunks;elementIdx++){
-        memcpy(((char*)outputDataP)+elementIdx*sizeOfAlignedChunk,((char*)inputDataP)+elementIdx*sizeOfChunk,sizeOfChunk);
-    }
-}*/
-
-void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP){
-    //Iterate over dae files and get number of vertices/indices and calculate their size
-    VkDeviceSize totalStagingPIUBufferSize=0;
-
-    //TODO remove this an add real object loader
-    //TODO add for loop over all models we wish to load
-    //struct eng3dObject ObjectToBeLoaded;    TODO remove this global hack
-    loadDaeObject("./res/kegel_ohne_camera.dae","Cylinder-mesh",&(ObjectToBeLoaded.daeData));
-    ObjectToBeLoaded.stagingBuffers.IndexBufferSize=(ObjectToBeLoaded.daeData.IndexingDlP->itemcnt*sizeof(uint32_t));
-    ObjectToBeLoaded.stagingBuffers.PNUBufferSize  =(ObjectToBeLoaded.daeData.CombinedPsNrUvDlP->itemcnt*sizeof(float));
-
-    //
-    //Setup Uniform Buffer
-    //
-    //Create Uniform Buffers Handle, this time only host_visible and not neccesarily device local
+void _eng_VertexBuffer_createHandle(struct VulkanRuntimeInfo* vkRuntimeInfoP, struct engBufferHandle* BufferWithSpecifiedSizeP,uint32_t srcOrDstBit){
+    //Create handle for new uniform buffer
     VkBufferCreateInfo UniformBufferCreateInfo={0};
     UniformBufferCreateInfo.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    UniformBufferCreateInfo.queueFamilyIndexCount=0;
+    UniformBufferCreateInfo.queueFamilyIndexCount=1;
+    UniformBufferCreateInfo.pQueueFamilyIndices=&(vkRuntimeInfoP->graphics_queue_family_idx);
+    UniformBufferCreateInfo.sharingMode=VK_SHARING_MODE_EXCLUSIVE;
+    UniformBufferCreateInfo.usage=  VK_BUFFER_USAGE_INDEX_BUFFER_BIT|
+                                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|
+                                    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT|
+                                    srcOrDstBit;
+    UniformBufferCreateInfo.size=BufferWithSpecifiedSizeP->ContentSizeInBytes;
+
+    CHK_VK(vkCreateBuffer(vkRuntimeInfoP->device,&UniformBufferCreateInfo,NULL,&(BufferWithSpecifiedSizeP->BufferHandle)));
+
+    vkGetBufferMemoryRequirements(vkRuntimeInfoP->device,BufferWithSpecifiedSizeP->BufferHandle,&(BufferWithSpecifiedSizeP->MemoryRequirements));
+}
+
+void _eng_Memory_allocate(struct VulkanRuntimeInfo* vkRuntimeInfoP,VkDeviceMemory* VertexDeviceMemoryP,VkDeviceSize VertexMemoryAllocationSize,uint32_t MemoryTypeIdx){
+    //Allocate Memory for host local buffer
+    VkMemoryAllocateInfo UniformBufferAllocateInfo={0};
+    UniformBufferAllocateInfo.sType             =VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    UniformBufferAllocateInfo.allocationSize    =VertexMemoryAllocationSize;
+    UniformBufferAllocateInfo.memoryTypeIndex   =MemoryTypeIdx;
+    CHK_VK(vkAllocateMemory(vkRuntimeInfoP->device,&UniformBufferAllocateInfo,NULL,VertexDeviceMemoryP));
+}
+
+void _eng_DynamicUnifBuf_allocateAndBind(struct VulkanRuntimeInfo* vkRuntimeInfoP, struct engBufferHandle* BufferWithSpecifiedSizeP){
+    //Create handle for new uniform buffer
+    VkBufferCreateInfo UniformBufferCreateInfo={0};
+    UniformBufferCreateInfo.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    UniformBufferCreateInfo.queueFamilyIndexCount=1;
     UniformBufferCreateInfo.pQueueFamilyIndices=&(vkRuntimeInfoP->graphics_queue_family_idx);
     UniformBufferCreateInfo.sharingMode=VK_SHARING_MODE_EXCLUSIVE;
     UniformBufferCreateInfo.usage=VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-    UniformBufferCreateInfo.size=sizeof(mat4x4)*vkRuntimeInfoP->imagesInFlightCount; //ToDo support per object mvp matrices
-    CHK_VK(vkCreateBuffer(vkRuntimeInfoP->device,&UniformBufferCreateInfo,NULL,&vkRuntimeInfoP->UniformBufferHandle));
-    //Get Memory Requirements
+    UniformBufferCreateInfo.size=BufferWithSpecifiedSizeP->ContentSizeInBytes;
+
+    CHK_VK(vkCreateBuffer(vkRuntimeInfoP->device,&UniformBufferCreateInfo,NULL,&(BufferWithSpecifiedSizeP->BufferHandle)));
+
+    //Get memory requirements
     VkMemoryRequirements UniformBufferMemoryRequirements;
-    vkGetBufferMemoryRequirements(vkRuntimeInfoP->device,vkRuntimeInfoP->UniformBufferHandle,&UniformBufferMemoryRequirements);
+    vkGetBufferMemoryRequirements(vkRuntimeInfoP->device,BufferWithSpecifiedSizeP->BufferHandle,&UniformBufferMemoryRequirements);
     VkDeviceSize UniformBufferMemorySizeWithPadding=0;
     UniformBufferMemorySizeWithPadding=UniformBufferMemoryRequirements.size;
     if(UniformBufferMemoryRequirements.size%UniformBufferMemoryRequirements.alignment){ //End of buffer is not aligned, so pad size so that it is
@@ -443,151 +290,204 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP){
         UniformBufferMemorySizeWithPadding++;
         UniformBufferMemorySizeWithPadding*=UniformBufferMemoryRequirements.alignment;
     }
+
+    uint32_t bestMemoryTypeIdx=_eng_Memory_findBestType(vkRuntimeInfoP,
+                                ~UniformBufferMemoryRequirements.memoryTypeBits,
+                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, //Memory needs to be Host visible
+                                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT|VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
+                                &(BufferWithSpecifiedSizeP->MemoryFlags),
+                                UniformBufferMemorySizeWithPadding);
+
     //Allocate Memory for unifrom buffer
     VkMemoryAllocateInfo UniformBufferAllocateInfo={0};
-    UniformBufferAllocateInfo.sType=VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    UniformBufferAllocateInfo.allocationSize=UniformBufferMemorySizeWithPadding;
-    UniformBufferAllocateInfo.memoryTypeIndex=findBestMemoryType(vkRuntimeInfoP,
-                                                                 ~UniformBufferMemoryRequirements.memoryTypeBits,
-                                                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-                                                                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT|VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                                                                 NULL,
-                                                                 UniformBufferMemorySizeWithPadding);
-    CHK_VK(vkAllocateMemory(vkRuntimeInfoP->device,&UniformBufferAllocateInfo,NULL,&(vkRuntimeInfoP->UniformBufferMemory)));
+    UniformBufferAllocateInfo.sType             =VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    UniformBufferAllocateInfo.allocationSize    =UniformBufferMemorySizeWithPadding;
+    UniformBufferAllocateInfo.memoryTypeIndex   =bestMemoryTypeIdx;
+    CHK_VK(vkAllocateMemory(vkRuntimeInfoP->device,&UniformBufferAllocateInfo,NULL,&(BufferWithSpecifiedSizeP->Memory)));
 
     //Bind the buffer handle to memory
-    CHK_VK(vkBindBufferMemory(vkRuntimeInfoP->device,vkRuntimeInfoP->UniformBufferHandle,vkRuntimeInfoP->UniformBufferMemory,0));
+    CHK_VK(vkBindBufferMemory(vkRuntimeInfoP->device,BufferWithSpecifiedSizeP->BufferHandle,BufferWithSpecifiedSizeP->Memory,0));
+}
 
+void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP){
+    //struct eng3dObject ObjectToBeLoaded;    TODO remove this global hack
+    VkDeviceSize RoughMemoryEstimate=0;
+    for(int ObjectNum=0;ObjectNum<1;ObjectNum++){
+        daeLoader_load("./res/untitled.dae","Cube-mesh",&(ObjectToBeLoaded.daeData));
+        ObjectToBeLoaded.readVertexBufferP=(struct engBufferHandle*)malloc(sizeof(struct engBufferHandle));
+        ObjectToBeLoaded.PosNormUvInBufOffset=0;
+        ObjectToBeLoaded.IdxInBufOffset=ObjectToBeLoaded.daeData.CombinedPsNrUvDlP->itemcnt*sizeof(float);
 
-    //Calculate size requirements for staging buffer on cpu side
-    //for{
-    eng_ceatePINBufferAndCalcSize(vkRuntimeInfoP,&(ObjectToBeLoaded.stagingBuffers),VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
-    totalStagingPIUBufferSize+= ObjectToBeLoaded.stagingBuffers.TotalSizeWithPadding;
-    //}
-
-    //Create staging buffer on cpu side
-    VkDeviceMemory TemporaryStagingBufferMem;
-    VkMemoryAllocateInfo MemoryAllocateInfo={0};
-    MemoryAllocateInfo.sType=VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    dprintf(DBGT_INFO,"Supported memory types for temporary staging buffer %x",ObjectToBeLoaded.stagingBuffers.PNUIBufferMemoryRequirements.memoryTypeBits);
-    //TODO parse the return to check if we the memory for the device is directly host accessible
-    int32_t bestMemType=findBestMemoryType(vkRuntimeInfoP,
-                                           ~ObjectToBeLoaded.stagingBuffers.PNUIBufferMemoryRequirements.memoryTypeBits, //forbidden
-                                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,                                         //required
-                                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,                                         //uprank
-                                           NULL,                                                                        //return
-                                           ObjectToBeLoaded.stagingBuffers.PNUIBufferMemoryRequirements.size);           //size
-    MemoryAllocateInfo.memoryTypeIndex=(uint32_t)bestMemType;
-    MemoryAllocateInfo.allocationSize=totalStagingPIUBufferSize;
-    CHK_VK(vkAllocateMemory(vkRuntimeInfoP->device,&MemoryAllocateInfo,NULL,&TemporaryStagingBufferMem));
-    CHK_VK(vkBindBufferMemory(vkRuntimeInfoP->device,ObjectToBeLoaded.stagingBuffers.PNUIBufferHandle,TemporaryStagingBufferMem,0));
-    //TODO check if gpu has unified memory
-
-    ObjectToBeLoaded.deviceBuffers.IndexBufferSize=ObjectToBeLoaded.stagingBuffers.IndexBufferSize;
-    ObjectToBeLoaded.deviceBuffers.PNUBufferSize=ObjectToBeLoaded.stagingBuffers.PNUBufferSize;
-    //Calculate size requirements for device buffer on gpu side
-    VkDeviceSize totalDevicePIUBufferSize=0;
-    //for{
-    eng_ceatePINBufferAndCalcSize(vkRuntimeInfoP,&(ObjectToBeLoaded.deviceBuffers),VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    totalDevicePIUBufferSize+=ObjectToBeLoaded.deviceBuffers.TotalSizeWithPadding;
-    //}
-
-    //Create device buffer on gpu side
-    bestMemType=findBestMemoryType(vkRuntimeInfoP,
-                                   ~ObjectToBeLoaded.deviceBuffers.PNUIBufferMemoryRequirements.memoryTypeBits,
-                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                                   0,
-                                   NULL,
-                                   totalStagingPIUBufferSize);
-    if(bestMemType<0){
-        dprintf(DBGT_ERROR,"No memory on vram with the necessary size and attributes found");
-        exit(1);
+        ObjectToBeLoaded.readVertexBufferP->ContentSizeInBytes=((ObjectToBeLoaded.daeData.CombinedPsNrUvDlP->itemcnt*sizeof(float))
+                                                                +(ObjectToBeLoaded.daeData.IndexingDlP->itemcnt*sizeof(uint32_t)));
+        _eng_VertexBuffer_createHandle(vkRuntimeInfoP,ObjectToBeLoaded.readVertexBufferP,VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        RoughMemoryEstimate+=ObjectToBeLoaded.readVertexBufferP->MemoryRequirements.size+ObjectToBeLoaded.readVertexBufferP->MemoryRequirements.alignment*16;
     }
-    MemoryAllocateInfo.memoryTypeIndex=(uint32_t)bestMemType;
-    MemoryAllocateInfo.allocationSize=totalDevicePIUBufferSize;
-    CHK_VK(vkAllocateMemory(vkRuntimeInfoP->device,&MemoryAllocateInfo,NULL,&(vkRuntimeInfoP->StaticPINBufferMemory)));
-    CHK_VK(vkBindBufferMemory(vkRuntimeInfoP->device,ObjectToBeLoaded.deviceBuffers.PNUIBufferHandle,vkRuntimeInfoP->StaticPINBufferMemory,0));
+
+    //Check for unified memory
+    uint32_t resultMemoryBits;
+    uint32_t DeviceLocalMemoryType=_eng_Memory_findBestType(vkRuntimeInfoP,~(ObjectToBeLoaded.readVertexBufferP->MemoryRequirements.memoryTypeBits),
+                                                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                                            0,
+                                                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,   //favor non host visible memory
+                                                            &(resultMemoryBits),
+                                                            RoughMemoryEstimate);
+    int unifiedMemoryFlag=(resultMemoryBits&VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+    for(int ObjectNum=0;ObjectNum<1;ObjectNum++){
+        if(unifiedMemoryFlag){
+            ObjectToBeLoaded.writeVertexBufferP=ObjectToBeLoaded.readVertexBufferP;
+        }else{
+            ObjectToBeLoaded.writeVertexBufferP=(struct engBufferHandle*)malloc(sizeof(struct engBufferHandle));
+            ObjectToBeLoaded.writeVertexBufferP->ContentSizeInBytes=ObjectToBeLoaded.readVertexBufferP->ContentSizeInBytes;
+            _eng_VertexBuffer_createHandle(vkRuntimeInfoP,ObjectToBeLoaded.writeVertexBufferP,VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+        }
+    }
+
+    //get maximum alignment required
+    VkDeviceSize MaxAlignment=max_uint32_t(ObjectToBeLoaded.writeVertexBufferP->MemoryRequirements.alignment,
+                                           ObjectToBeLoaded.readVertexBufferP->MemoryRequirements.alignment);
+
+    //Calculate the required size and handle alignment
+    VkDeviceSize TotalAllocationSize=0;
+    for(int ObjectNum=0;ObjectNum<1;ObjectNum++){
+        //Align Start of Buffer
+        VkDeviceSize LastBufferAlignmentOvershoot=TotalAllocationSize%MaxAlignment;
+        if(LastBufferAlignmentOvershoot){
+            TotalAllocationSize+=(MaxAlignment-LastBufferAlignmentOvershoot);
+        }
+        ObjectToBeLoaded.writeVertexBufferP->OffsetInMemoryInBytes=TotalAllocationSize;
+        ObjectToBeLoaded.readVertexBufferP->OffsetInMemoryInBytes=TotalAllocationSize;
+        //Account for buffer length
+        TotalAllocationSize+=max_uint32_t(ObjectToBeLoaded.writeVertexBufferP->MemoryRequirements.size,
+                                          ObjectToBeLoaded.readVertexBufferP->MemoryRequirements.size);
+    }
+
+    //Get device side memory
+    VkDeviceMemory VertexDeviceMemory;
+    VkDeviceMemory VertexHostMemory;
+    _eng_Memory_allocate(vkRuntimeInfoP,&VertexDeviceMemory,TotalAllocationSize,DeviceLocalMemoryType);
+    if(!unifiedMemoryFlag){
+        uint32_t HostLocalMemoryType=_eng_Memory_findBestType(vkRuntimeInfoP,
+                                                                ~ObjectToBeLoaded.writeVertexBufferP->MemoryRequirements.memoryTypeBits,
+                                                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+                                                                0,
+                                                                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                                                NULL,
+                                                                TotalAllocationSize);
+        _eng_Memory_allocate(vkRuntimeInfoP,&VertexHostMemory,TotalAllocationSize,HostLocalMemoryType);
+    }
+
+    //Bind Buffers
+    for(int ObjectNum=0;ObjectNum<1;ObjectNum++){
+
+        ObjectToBeLoaded.readVertexBufferP->Memory=VertexDeviceMemory;
+        CHK_VK(vkBindBufferMemory(vkRuntimeInfoP->device,ObjectToBeLoaded.readVertexBufferP->BufferHandle,
+                                                         ObjectToBeLoaded.readVertexBufferP->Memory,
+                                                         ObjectToBeLoaded.readVertexBufferP->OffsetInMemoryInBytes));
+        if(!unifiedMemoryFlag){
+            ObjectToBeLoaded.writeVertexBufferP->Memory=VertexHostMemory;
+            CHK_VK(vkBindBufferMemory(vkRuntimeInfoP->device,ObjectToBeLoaded.writeVertexBufferP->BufferHandle,
+                                                             ObjectToBeLoaded.writeVertexBufferP->Memory,
+                                                             ObjectToBeLoaded.writeVertexBufferP->OffsetInMemoryInBytes));
+        }
+    }
 
 
-    //Move data into cpu side buffer
-    //Also setup binds for both cpu and gpu object buffers
-    //for ObjectToBeLoaded{
+    //Setup Uniform Buffer
+    //ToDo support per object mvp matrices
+    vkRuntimeInfoP->FastUpdatingUniformBuffer.ContentSizeInBytes=sizeof(mat4x4)*vkRuntimeInfoP->imagesInFlightCount;
+    _eng_DynamicUnifBuf_allocateAndBind(vkRuntimeInfoP,&(vkRuntimeInfoP->FastUpdatingUniformBuffer));
+
+
+    //Move data into write buffer
+    for(int ObjectNum=0;ObjectNum<1;ObjectNum++){
         //Bind Memory To Buffers
         void* mappedMemoryP;
+        //map object buffer
+        CHK_VK(vkMapMemory(vkRuntimeInfoP->device,ObjectToBeLoaded.writeVertexBufferP->Memory,ObjectToBeLoaded.writeVertexBufferP->OffsetInMemoryInBytes,ObjectToBeLoaded.writeVertexBufferP->ContentSizeInBytes,0,&mappedMemoryP));
         //copy position,normal,uv data
-        CHK_VK(vkMapMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem,0,ObjectToBeLoaded.stagingBuffers.PNUBufferSize,0,&mappedMemoryP));
-        memcpy(mappedMemoryP,ObjectToBeLoaded.daeData.CombinedPsNrUvDlP->items,ObjectToBeLoaded.daeData.CombinedPsNrUvDlP->itemcnt*sizeof(float));
-        vkUnmapMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem);
+        memcpy(((char*)mappedMemoryP)+ObjectToBeLoaded.PosNormUvInBufOffset,ObjectToBeLoaded.daeData.CombinedPsNrUvDlP->items,ObjectToBeLoaded.daeData.CombinedPsNrUvDlP->itemcnt*sizeof(float));
+        //copy combined index
+        memcpy(((char*)mappedMemoryP)+ObjectToBeLoaded.IdxInBufOffset,ObjectToBeLoaded.daeData.IndexingDlP->items,ObjectToBeLoaded.daeData.IndexingDlP->itemcnt*sizeof(uint32_t));
+        vkUnmapMemory(vkRuntimeInfoP->device,ObjectToBeLoaded.writeVertexBufferP->Memory);
         DlDelete(ObjectToBeLoaded.daeData.CombinedPsNrUvDlP);
-        //copy combined index data
-        CHK_VK(vkMapMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem,ObjectToBeLoaded.stagingBuffers.PNUBufferSize,ObjectToBeLoaded.stagingBuffers.IndexBufferSize,0,&mappedMemoryP));
-        memcpy(mappedMemoryP,ObjectToBeLoaded.daeData.IndexingDlP->items,ObjectToBeLoaded.daeData.IndexingDlP->itemcnt*sizeof(uint32_t));
-        vkUnmapMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem);
+        ObjectToBeLoaded.vertexCount=ObjectToBeLoaded.daeData.IndexingDlP->itemcnt;
+        DlDelete(ObjectToBeLoaded.daeData.IndexingDlP);
         //copy normal data
-    //}
+    }
 
-    //
     //schedule upload to gpu side
-    //
+    VkCommandBuffer UploadCommandBuffer=_eng_cmdBuf_startSingleUse(vkRuntimeInfoP);
+    //copy command for every object
+    VkBufferCopy copyRegion={0};
+    for(int ObjectNum=0;ObjectNum<1;ObjectNum++){
+        copyRegion.size=ObjectToBeLoaded.writeVertexBufferP->MemoryRequirements.size;
+        vkCmdCopyBuffer(UploadCommandBuffer,ObjectToBeLoaded.writeVertexBufferP->BufferHandle,ObjectToBeLoaded.readVertexBufferP->BufferHandle,1,&copyRegion);
+    }
+    //end recording
+    _eng_cmdBuf_endAndSubmitSingleUse(vkRuntimeInfoP,UploadCommandBuffer);
 
+    //Cleanup
+    if(!unifiedMemoryFlag){
+        for(int ObjectNum=0;ObjectNum<1;ObjectNum++){
+            vkDestroyBuffer(vkRuntimeInfoP->device,ObjectToBeLoaded.writeVertexBufferP->BufferHandle,NULL);
+        }
+        vkFreeMemory(vkRuntimeInfoP->device,VertexHostMemory,NULL);
+    }
+}
+
+VkCommandBuffer _eng_cmdBuf_startSingleUse(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     //create command buffer
     VkCommandBuffer UploadCommandBuffer;
     VkCommandBufferAllocateInfo CommandBufferAllocateInfo={0};
-    CommandBufferAllocateInfo.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    CommandBufferAllocateInfo.sType             =VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     CommandBufferAllocateInfo.commandBufferCount=1;
-    CommandBufferAllocateInfo.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    CommandBufferAllocateInfo.commandPool=vkRuntimeInfoP->commandPool;
+    CommandBufferAllocateInfo.level             =VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    CommandBufferAllocateInfo.commandPool       =vkRuntimeInfoP->commandPool;
     CHK_VK(vkAllocateCommandBuffers(vkRuntimeInfoP->device,&CommandBufferAllocateInfo,&UploadCommandBuffer));
     //start recording
     VkCommandBufferBeginInfo CommandBufferBeginInfo={0};
     CommandBufferBeginInfo.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     CommandBufferBeginInfo.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     CHK_VK(vkBeginCommandBuffer(UploadCommandBuffer,&CommandBufferBeginInfo));
-    //copy command for every object
-    VkBufferCopy copyRegion={0};
+    return UploadCommandBuffer;
+}
 
-
-    //for ObjectToBeLoaded{
-        //TODO check if the size of device local and cpu side buffer are equivalent
-        copyRegion.size=ObjectToBeLoaded.deviceBuffers.PNUBufferSize+ObjectToBeLoaded.deviceBuffers.IndexBufferSize;
-        vkCmdCopyBuffer(UploadCommandBuffer,ObjectToBeLoaded.stagingBuffers.PNUIBufferHandle,ObjectToBeLoaded.deviceBuffers.PNUIBufferHandle,1,&copyRegion);
-    //}
+void _eng_cmdBuf_endAndSubmitSingleUse(struct VulkanRuntimeInfo* vkRuntimeInfoP,VkCommandBuffer SingleUseBufferP){
     //end recording
-    vkEndCommandBuffer(UploadCommandBuffer);
+    vkEndCommandBuffer(SingleUseBufferP);
     //submit to gpu with no synchronisation
     VkSubmitInfo SubmitInfo={0};
     SubmitInfo.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO;
     SubmitInfo.commandBufferCount=1;
-    SubmitInfo.pCommandBuffers=&UploadCommandBuffer;
+    SubmitInfo.pCommandBuffers=&SingleUseBufferP;
     CHK_VK(vkQueueSubmit(vkRuntimeInfoP->graphics_queue,1,&SubmitInfo,VK_NULL_HANDLE));
     CHK_VK(vkQueueWaitIdle(vkRuntimeInfoP->graphics_queue));
-    vkFreeCommandBuffers(vkRuntimeInfoP->device,vkRuntimeInfoP->commandPool,1,&UploadCommandBuffer);
-    //for ObjectToBeLoaded{
-    vkDestroyBuffer(vkRuntimeInfoP->device,ObjectToBeLoaded.stagingBuffers.PNUIBufferHandle,NULL);
-    //end recording
-    vkFreeMemory(vkRuntimeInfoP->device,TemporaryStagingBufferMem,NULL);
+    vkFreeCommandBuffers(vkRuntimeInfoP->device,vkRuntimeInfoP->commandPool,1,&SingleUseBufferP);
 }
 
 void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct xmlTreeElement* eng_setupxmlP){
     //get required information from xml object in memory
     //engine and app name
-    struct xmlTreeElement* engNameXmlElmntP=getFirstSubelementWith_freeArg234(eng_setupxmlP,Dl_utf32_fromString("EngineName"),NULL,NULL,0,0);
+    struct xmlTreeElement* engNameXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"EngineName",NULL,NULL,0,0);
     struct xmlTreeElement* engNameContentXmlElmntP=getFirstSubelementWith(engNameXmlElmntP,NULL,NULL,NULL,xmltype_chardata,0);
     engNameContentXmlElmntP->content=Dl_utf32_StripSpaces_freeArg1(engNameContentXmlElmntP->content);
     char* engNameCharP=Dl_utf32_toString(engNameContentXmlElmntP->content);
 
-    struct xmlTreeElement* appNameXmlElmntP=getFirstSubelementWith_freeArg234(eng_setupxmlP,Dl_utf32_fromString("ApplicationName"),NULL,NULL,0,0);
+    struct xmlTreeElement* appNameXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"ApplicationName",NULL,NULL,0,0);
     struct xmlTreeElement* appNameContentXmlElmntP=getFirstSubelementWith(appNameXmlElmntP,NULL,NULL,NULL,xmltype_chardata,0);
     appNameContentXmlElmntP->content=Dl_utf32_StripSpaces_freeArg1(appNameContentXmlElmntP->content);
     char* appNameCharP=Dl_utf32_toString(appNameContentXmlElmntP->content);
 
     //engine and app version
-    struct xmlTreeElement* engVersionXmlElmntP=getFirstSubelementWith_freeArg234(eng_setupxmlP,Dl_utf32_fromString("EngineVersion"),NULL,NULL,0,0);
+    struct xmlTreeElement* engVersionXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"EngineVersion",NULL,NULL,0,0);
     struct xmlTreeElement* engVersionContentXmlElmntP=getFirstSubelementWith(engVersionXmlElmntP,NULL,NULL,NULL,xmltype_chardata,0);
     engVersionContentXmlElmntP->content=Dl_utf32_StripSpaces_freeArg1(engVersionContentXmlElmntP->content);
     uint32_t engVersion=eng_get_version_number_from_UTF32DynlistP(engVersionContentXmlElmntP->content);
 
-    struct xmlTreeElement* appVersionXmlElmntP=getFirstSubelementWith_freeArg234(eng_setupxmlP,Dl_utf32_fromString("ApplicationVersion"),NULL,NULL,0,0);
+    struct xmlTreeElement* appVersionXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"ApplicationVersion",NULL,NULL,0,0);
     struct xmlTreeElement* appVersionContentXmlElmntP=getFirstSubelementWith(appVersionXmlElmntP,NULL,NULL,NULL,xmltype_chardata,0);
     appVersionContentXmlElmntP->content=Dl_utf32_StripSpaces_freeArg1(appVersionContentXmlElmntP->content);
     uint32_t appVersion=eng_get_version_number_from_UTF32DynlistP(appVersionContentXmlElmntP->content);
@@ -603,10 +503,10 @@ void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct xmlTreeE
     AppInfo.engineVersion=      engVersion;
 
     //retrieve required layers and extensions for instance
-    struct xmlTreeElement* reqInstLayerXmlElmntP=getFirstSubelementWith_freeArg234(eng_setupxmlP,Dl_utf32_fromString("RequiredInstanceLayers"),NULL,NULL,0,0);
-    struct DynamicList* reqInstLayerDynlistP=getAllSubelementsWith_freeArg234(reqInstLayerXmlElmntP,Dl_utf32_fromString("Layer"),NULL,NULL,0,0);
-    struct xmlTreeElement* reqInstExtensionXmlElmntP=getFirstSubelementWith_freeArg234(eng_setupxmlP,Dl_utf32_fromString("RequiredInstanceExtensions"),NULL,NULL,0,0);
-    struct DynamicList* reqInstExtensionDynlistP=getAllSubelementsWith_freeArg234(reqInstExtensionXmlElmntP,Dl_utf32_fromString("Extension"),NULL,NULL,0,0);
+    struct xmlTreeElement* reqInstLayerXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"RequiredInstanceLayers",NULL,NULL,0,0);
+    struct DynamicList* reqInstLayerDynlistP=getAllSubelementsWithASCII(reqInstLayerXmlElmntP,"Layer",NULL,NULL,0,0);
+    struct xmlTreeElement* reqInstExtensionXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"RequiredInstanceExtensions",NULL,NULL,0,0);
+    struct DynamicList* reqInstExtensionDynlistP=getAllSubelementsWithASCII(reqInstExtensionXmlElmntP,"Extension",NULL,NULL,0,0);
 
     //Check layer support
     uint32_t layerCount=0;
@@ -618,7 +518,7 @@ void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct xmlTreeE
     for(unsigned int required_layer_idx=0;required_layer_idx<reqInstLayerDynlistP->itemcnt;required_layer_idx++){
         unsigned int available_layer_idx;
         struct xmlTreeElement* currentLayerXmlElmntP=((struct xmlTreeElement**)(reqInstLayerDynlistP->items))[required_layer_idx];
-        struct DynamicList* reqLayerNameDynlistP=getValueFromKeyName_freeArg2(currentLayerXmlElmntP->attributes,Dl_utf32_fromString("name"));
+        struct DynamicList* reqLayerNameDynlistP=getValueFromKeyNameASCII(currentLayerXmlElmntP->attributes,"name");
         //Dl_utf32_print(reqLayerNameDynlistP);
         char* reqLayerNameCharP=Dl_utf32_toString(reqLayerNameDynlistP);
         //printf("%s",reqLayerNameCharP);
@@ -650,7 +550,7 @@ void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct xmlTreeE
     for(unsigned int required_extension_idx=0;required_extension_idx<reqInstExtensionDynlistP->itemcnt;required_extension_idx++){
         unsigned int available_extension_idx;
         struct xmlTreeElement* currentExtensionXmlElmntP=((struct xmlTreeElement**)(reqInstExtensionDynlistP->items))[required_extension_idx];
-        char* reqExtensionNameCharP=Dl_utf32_toString(getValueFromKeyName_freeArg2(currentExtensionXmlElmntP->attributes,Dl_utf32_fromString("name")));
+        char* reqExtensionNameCharP=Dl_utf32_toString(getValueFromKeyNameASCII(currentExtensionXmlElmntP->attributes,"name"));
         uint32_t minVersion=eng_get_version_number_from_xmlemnt(currentExtensionXmlElmntP);
         for(available_extension_idx=0;available_extension_idx<extensionCount;available_extension_idx++){
             if(!strcmp(ExtensionProptertiesP[available_extension_idx].extensionName,reqExtensionNameCharP)){
@@ -677,7 +577,7 @@ void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct xmlTreeE
     vkRuntimeInfoP->InstExtensionNamesPP=(char**)malloc(vkRuntimeInfoP->InstExtensionCount*sizeof(char*));
     for(uint32_t InstExtensionIdx=0;InstExtensionIdx<vkRuntimeInfoP->InstExtensionCount;InstExtensionIdx++){
         struct xmlTreeElement* currentExtensionXmlElmntP=((struct xmlTreeElement**)(reqInstExtensionDynlistP->items))[InstExtensionIdx];
-        vkRuntimeInfoP->InstExtensionNamesPP[InstExtensionIdx]=Dl_utf32_toString(getValueFromKeyName_freeArg2(currentExtensionXmlElmntP->attributes,Dl_utf32_fromString("name")));
+        vkRuntimeInfoP->InstExtensionNamesPP[InstExtensionIdx]=Dl_utf32_toString(getValueFromKeyNameASCII(currentExtensionXmlElmntP->attributes,"name"));
         dprintf(DBGT_INFO,"Requesting inst extension %s",vkRuntimeInfoP->InstExtensionNamesPP[InstExtensionIdx]);
     }
 
@@ -686,7 +586,7 @@ void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct xmlTreeE
     vkRuntimeInfoP->InstLayerNamesPP=(char**)malloc(vkRuntimeInfoP->InstLayerCount*sizeof(char*));
     for(uint32_t InstLayerIdx=0;InstLayerIdx<vkRuntimeInfoP->InstLayerCount;InstLayerIdx++){
         struct xmlTreeElement* currentExtensionXmlElmntP=((struct xmlTreeElement**)(reqInstLayerDynlistP->items))[InstLayerIdx];
-        vkRuntimeInfoP->InstLayerNamesPP[InstLayerIdx]=Dl_utf32_toString(getValueFromKeyName_freeArg2(currentExtensionXmlElmntP->attributes,Dl_utf32_fromString("name")));
+        vkRuntimeInfoP->InstLayerNamesPP[InstLayerIdx]=Dl_utf32_toString(getValueFromKeyNameASCII(currentExtensionXmlElmntP->attributes,"name"));
         dprintf(DBGT_INFO,"Requesting inst layer %s",vkRuntimeInfoP->InstLayerNamesPP[InstLayerIdx]);
     }
 
@@ -965,7 +865,7 @@ uint32_t eng_get_version_number_from_UTF32DynlistP(struct DynamicList* inputStri
 
 uint32_t eng_get_version_number_from_xmlemnt(struct xmlTreeElement* currentReqXmlP){
     struct DynamicList* currentReqLayerAttribP=(currentReqXmlP->attributes);
-    struct DynamicList* minversionUTF32DynlistP=getValueFromKeyName_freeArg2(currentReqLayerAttribP,Dl_utf32_fromString("minversion"));
+    struct DynamicList* minversionUTF32DynlistP=getValueFromKeyNameASCII(currentReqLayerAttribP,"minversion");
     if(!minversionUTF32DynlistP){
         return 0;
     }
@@ -1165,7 +1065,7 @@ void eng_createDescriptorPoolAndSets(struct VulkanRuntimeInfo* vkRuntimeInfoP){
 
 void eng_createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP){
 
-    VkVertexInputAttributeDescription InputAttributeDescriptionArray[2];
+    VkVertexInputAttributeDescription InputAttributeDescriptionArray[3];
     //Positions
     InputAttributeDescriptionArray[0].location=0;   //will be used for positions vec3 (location=0) in shader
     InputAttributeDescriptionArray[0].binding=0;    //binding used to cross reference to the InputBindingDescription
@@ -1175,16 +1075,16 @@ void eng_createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     InputAttributeDescriptionArray[1].location=1;
     InputAttributeDescriptionArray[1].binding=0;
     InputAttributeDescriptionArray[1].format=VK_FORMAT_R32G32B32_SFLOAT;    //is equivalent to vec3
-    InputAttributeDescriptionArray[1].offset=4;
+    InputAttributeDescriptionArray[1].offset=4*sizeof(float);
     //UVs
     InputAttributeDescriptionArray[2].location=2;
     InputAttributeDescriptionArray[2].binding=0;
     InputAttributeDescriptionArray[2].format=VK_FORMAT_R32G32_SFLOAT;    //is equivalent to vec2
-    InputAttributeDescriptionArray[2].offset=8;
+    InputAttributeDescriptionArray[2].offset=8*sizeof(float);
 
 
     VkVertexInputBindingDescription InputBindingDescriptionArray[1];
-    InputBindingDescriptionArray[0].binding=0;  //binding used to cross reference to the InputAttributeDescription
+    InputBindingDescriptionArray[0].binding=0;
     InputBindingDescriptionArray[0].inputRate=VK_VERTEX_INPUT_RATE_VERTEX;    //jump to next vertex for every new triangle in the index buffer, not every vertex
     InputBindingDescriptionArray[0].stride=sizeof(float)*10;                     //stride is sizeof(vec4)*/
 
@@ -1193,8 +1093,8 @@ void eng_createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     VkPipelineVertexInputStateCreateInfo PipelineVertexInputStateInfo={0};
     PipelineVertexInputStateInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     PipelineVertexInputStateInfo.pNext=NULL;
-    PipelineVertexInputStateInfo.vertexAttributeDescriptionCount=2;
-    PipelineVertexInputStateInfo.vertexBindingDescriptionCount=2;
+    PipelineVertexInputStateInfo.vertexAttributeDescriptionCount=sizeof(InputAttributeDescriptionArray)/sizeof(InputAttributeDescriptionArray[0]);
+    PipelineVertexInputStateInfo.vertexBindingDescriptionCount=sizeof(InputBindingDescriptionArray)/sizeof(InputBindingDescriptionArray[0]);
     //needs to be set if we supply vertex buffers to our shader
     PipelineVertexInputStateInfo.pVertexAttributeDescriptions=InputAttributeDescriptionArray;
     PipelineVertexInputStateInfo.pVertexBindingDescriptions=InputBindingDescriptionArray;
@@ -1367,13 +1267,13 @@ void eng_createRenderCommandBuffers(struct VulkanRuntimeInfo* vkRuntimeInfoP){
         RenderPassInfo.renderPass=vkRuntimeInfoP->renderPass;
         vkCmdBeginRenderPass(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],&RenderPassInfo,VK_SUBPASS_CONTENTS_INLINE);
 
-        VkDeviceSize PNUBufferOffset=0;
-        vkCmdBindVertexBuffers(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],0,1,&ObjectToBeLoaded.deviceBuffers.PNUIBufferHandle,&PNUBufferOffset);
-        vkCmdBindIndexBuffer(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],ObjectToBeLoaded.deviceBuffers.PNUIBufferHandle,ObjectToBeLoaded.deviceBuffers.PNUBufferSize,VK_INDEX_TYPE_UINT32);
+        VkDeviceSize PNUBufferOffset=ObjectToBeLoaded.PosNormUvInBufOffset;
+        vkCmdBindVertexBuffers(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],0,1,&(ObjectToBeLoaded.readVertexBufferP->BufferHandle),&PNUBufferOffset);
+        vkCmdBindIndexBuffer(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],ObjectToBeLoaded.readVertexBufferP->BufferHandle,ObjectToBeLoaded.IdxInBufOffset,VK_INDEX_TYPE_UINT32);
         vkCmdBindDescriptorSets(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],VK_PIPELINE_BIND_POINT_GRAPHICS,vkRuntimeInfoP->graphicsPipelineLayout,0,1,&(vkRuntimeInfoP->descriptorSetsP[CommandBufferIdx]),0,NULL);
         //vkCmdBindDescriptorSets(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],VK_PIPELINE_BIND_POINT_GRAPHICS,vkRuntimeInfoP->graphicsPipelineLayout,0,1,vkRuntimeInfoP->descriptorSetsP,0,NULL);
         vkCmdBindPipeline(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],VK_PIPELINE_BIND_POINT_GRAPHICS,vkRuntimeInfoP->graphicsPipeline);
-        vkCmdDrawIndexed(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],(ObjectToBeLoaded.deviceBuffers.IndexBufferSize)/sizeof(uint32_t),1,0,0,0);
+        vkCmdDrawIndexed(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],ObjectToBeLoaded.vertexCount,1,0,0,0);
         vkCmdEndRenderPass(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx]);
         CHK_VK(vkEndCommandBuffer(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx]));
     }
@@ -1425,7 +1325,7 @@ void eng_draw(struct VulkanRuntimeInfo* vkRuntimeInfoP){
 
     //View
     mat4x4 VMatrix;
-    vec3 eye={2.0f,0.0f,0.5f};
+    vec3 eye={2.0f,0.0f,2.0f};
     vec3 center={0.0f,0.0f,0.0f};
     vec3 up={0.0f,0.0f,1.0f};
     mat4x4_look_at(VMatrix,eye,center,up);
@@ -1447,10 +1347,10 @@ void eng_draw(struct VulkanRuntimeInfo* vkRuntimeInfoP){
 
     //copy in buffer
     void* mappedUniformSliceP;
-    CHK_VK(vkMapMemory(vkRuntimeInfoP->device,vkRuntimeInfoP->UniformBufferMemory,sizeof(mat4x4)*nextImageIdx,sizeof(mat4x4),0,&mappedUniformSliceP));
+    CHK_VK(vkMapMemory(vkRuntimeInfoP->device,vkRuntimeInfoP->FastUpdatingUniformBuffer.Memory,sizeof(mat4x4)*nextImageIdx,sizeof(mat4x4),0,&mappedUniformSliceP));
     memcpy(mappedUniformSliceP,&(MVPMatrix[0][0]),sizeof(mat4x4));
     //TODO flush memory
-    vkUnmapMemory(vkRuntimeInfoP->device,vkRuntimeInfoP->UniformBufferMemory);
+    vkUnmapMemory(vkRuntimeInfoP->device,vkRuntimeInfoP->FastUpdatingUniformBuffer.Memory);
 
     //Get next image from swapChain
     CHK_VK(vkAcquireNextImageKHR(vkRuntimeInfoP->device,vkRuntimeInfoP->swapChain,UINT64_MAX,(vkRuntimeInfoP->imageAvailableSemaphoreP)[nextImageIdx],VK_NULL_HANDLE,&nextImageIdx));
@@ -1484,7 +1384,7 @@ void eng_writeDescriptorSets(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     for(uint32_t image=0;image<vkRuntimeInfoP->imagesInFlightCount;image++){
         //Write descriptor set
         VkDescriptorBufferInfo BufferInfo;
-        BufferInfo.buffer=vkRuntimeInfoP->UniformBufferHandle;
+        BufferInfo.buffer=vkRuntimeInfoP->FastUpdatingUniformBuffer.BufferHandle;
         BufferInfo.offset=sizeof(mat4x4)*image;
         BufferInfo.range=sizeof(mat4x4);
 
@@ -1513,7 +1413,7 @@ int main(int argc, char** argv){
     #else
         struct xmlTreeElement* eng_setupxmlP=eng_get_eng_setupxml("./res/vk_setup.xml",0);
     #endif
-    struct xmlTreeElement* applicationNameXmlElmntP=getFirstSubelementWith_freeArg234(eng_setupxmlP,Dl_utf32_fromString("ApplicationName"),NULL,NULL,0,1);
+    struct xmlTreeElement* applicationNameXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"ApplicationName",NULL,NULL,0,1);
     char* applicationNameCharP=Dl_utf32_toString(getFirstSubelementWith(applicationNameXmlElmntP,NULL,NULL,NULL,xmltype_chardata,0)->content);
     GLFWwindow* mainWindowP = glfwCreateWindow(1920, 1080, applicationNameCharP, NULL, NULL);
     free(applicationNameCharP);

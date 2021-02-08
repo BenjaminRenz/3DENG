@@ -52,7 +52,16 @@
 		</Unit>
 		<Unit filename="res/kegel_ohne_camera.dae" />
 		<Unit filename="res/shader1.xml" />
+		<Unit filename="res/untitled.dae" />
 		<Unit filename="res/vk_setup.xml" />
+		<Unit filename="submodules/bmpLoader/bmpLoader.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="submodules/bmpLoader/bmpLoader.h" />
+		<Unit filename="submodules/daeLoader/daeLoader.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="submodules/daeLoader/daeLoader.h" />
 		<Unit filename="submodules/linmath/linmath.h" />
 		<Unit filename="submodules/mathHelper/mathHelper.c">
 			<Option compilerVar="CC" />
