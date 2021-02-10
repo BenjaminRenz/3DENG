@@ -1,46 +1,5 @@
 #include <stdint.h>
 
-uint32_t max_uint32_t(uint32_t a, uint32_t b){
-    if(a>b){
-        return a;
-    }else{
-        return b;
-    }
-}
-
-uint32_t min_uint32_t(uint32_t a, uint32_t b){
-    if(a<b){
-        return a;
-    }else{
-        return b;
-    }
-}
-
-int32_t max_int32_t(int32_t a, int32_t b){
-    if(a>b){
-        return a;
-    }else{
-        return b;
-    }
-}
-
-int32_t min_int32_t(int32_t a, int32_t b){
-    if(a<b){
-        return a;
-    }else{
-        return b;
-    }
-}
-
-uint32_t clamp_uint32_t(uint32_t lower_bound,uint32_t clampedValueInput,uint32_t upper_bound){
-    return max_uint32_t(min_uint32_t(upper_bound,clampedValueInput),lower_bound);
-}
-
-int32_t clamp_int32_t(int32_t lower_bound,int32_t clampedValueInput,int32_t upper_bound){
-    return max_int32_t(min_int32_t(upper_bound,clampedValueInput),lower_bound);
-}
-
-
 uint32_t countBitsInUint32(uint32_t input){
     //add subbits in increasing bin sizes (bit0+bit1),(bit2+bit3),...
     input=(input&0x55555555)+((input>>1)&0x55555555);
@@ -50,3 +9,28 @@ uint32_t countBitsInUint32(uint32_t input){
     input=(input&0x0000ffff)+(input>>16);
     return input;
 }
+
+
+#define defineMinMaxForType(name,c_type)\
+c_type min_##name(c_type a, c_type b){  \
+    if(a<b){                            \
+        return a;                       \
+    }else{                              \
+        return b;                       \
+    }                                   \
+}                                       \
+c_type max_##name(c_type a, c_type b){  \
+    if(a>b){                            \
+        return a;                       \
+    }else{                              \
+        return b;                       \
+    }                                   \
+}
+
+#define defineClampForType(name,c_type)                                 \
+c_type clamp_##name(c_type lower,c_type clamped_value, c_type upper){   \
+    return max_##name(min_##name(upper,clamped_value),lower);           \
+}
+
+#define MATHHELPER_C
+#include "mathHelper/mathHelper.h"

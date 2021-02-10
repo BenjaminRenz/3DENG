@@ -1,17 +1,7 @@
 # depslib dependency file v1.0
-1612760330 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
-	<stdio.h>
-	<stdlib.h>
-	<string.h>
-	<stdint.h>
-	"vulkan/vulkan.h"
-	"shaderc/shaderc.h"
-	"glfw/glfw3.h"
+1612897692 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
 	"mathHelper/mathHelper.h"
-	"linmath/linmath.h"
-	<debugPrint/debugPrint.h>
-	"xmlReader/xmlReader.h"
-	"daeLoader/daeLoader.h"
+	"dynList/dynList.h"
 
 1605726241 s/xmlReader/stringutils.h"
 
@@ -33,7 +23,7 @@
 
 1605725052 
 
-1612554643 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.h
+1612893737 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.h
 	<stdarg.h>
 	<stddef.h>
 	<stdint.h>
@@ -199,32 +189,43 @@
 	<math.h>
 	<string.h>
 
-1612398786 c:\users\badmin\desktop\gitprojects\3deng\submodules\mathhelper\mathhelper.h
+1612974372 c:\users\badmin\desktop\gitprojects\3deng\submodules\mathhelper\mathhelper.h
+	<stdint.h>
 
 1611690284 c:\users\badmin\desktop\gitprojects\3deng\submodules\linmath\linmath.h
 	<string.h>
 	<math.h>
 	<string.h>
 
-1612400241 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\mathhelper\mathhelper.c
+1612901485 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\mathhelper\mathhelper.c
 	<stdint.h>
+	"mathHelper/mathHelper.h"
 
 1604418712 c:\users\badmin\desktop\gitprojects\3deng\submodules\debugprint\debugprint.h
 	<stdio.h>
 
-1612760523 c:\users\badmin\desktop\gitprojects\3deng\submodules\daeloader\daeloader.h
+1612893652 c:\users\badmin\desktop\gitprojects\3deng\submodules\daeloader\daeloader.h
+	<stdint.h>
 
-1612761063 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\daeloader\daeloader.c
+1612801950 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\daeloader\daeloader.c
 	"daeLoader/daeLoader.h"
+	"bmpLoader/bmpLoader.h"
 	"xmlReader/xmlReader.h"
 	"debugPrint/debugPrint.h"
 	"stdlib.h"
 
-1612760563 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\bmploader\bmploader.c
+1612977256 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\bmploader\bmploader.c
 	"bmpLoader/bmpLoader.h"
 	"debugPrint/debugPrint.h"
 	<stdlib.h>
 
-1612761161 c:\users\badmin\desktop\gitprojects\3deng\submodules\bmploader\bmploader.h
+1612977120 c:\users\badmin\desktop\gitprojects\3deng\submodules\bmploader\bmploader.h
+	<stdint.h>
+
+1612895882 c:\users\badmin\desktop\gitprojects\3deng\submodules\dynlist\dynlist.h
+	"debugPrint/debugPrint.h"
+	"mathHelper/mathHelper.h"
+	<stdlib.h>
+	<string.h>
 	<stdint.h>
 

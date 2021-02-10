@@ -11,7 +11,9 @@
 #include "linmath/linmath.h"
 #include <debugPrint/debugPrint.h>
 #include "xmlReader/xmlReader.h"
+#include "xmlReader/xmlHelper.h"
 #include "daeLoader/daeLoader.h"
+#include "dynList/dynList.h"
 
 #define CHK_VK(function)                                                \
 do {                                                                    \
@@ -36,9 +38,24 @@ uint32_t eng_get_version_number_from_UTF32DynlistP(struct DynamicList* inputStri
 struct xmlTreeElement* eng_get_eng_setupxml(char* FilePath,int debug_enabled);
 
 
+struct modelPathAndName{
+    Dl_utf32Char* pathString;
+    Dl_utf32Char* modelName;
+};
 
+DlTypedef_plain(modelPathAndName,struct modelPathAndName*);
 
-
+struct engTextureHandle{
+    //this field must be filled before image handle creation
+    VkExtent3D              ContentExtentInPx;
+    //the fields below are filled while creating the image handle
+    VkImage                 ImageHandle;
+    VkMemoryRequirements    MemoryRequirements;
+    VkMemoryPropertyFlags   MemoryFlags;
+    //the fields below are only filled while allocating and binding the image to memory
+    VkDeviceSize            OffsetInMemoryInBytes;
+    VkDeviceMemory          Memory;
+};
 
 struct engBufferHandle{
     //this field must be filled before buffer handle creation
@@ -46,22 +63,21 @@ struct engBufferHandle{
     //the fields below are while creating the buffer handle
     VkBuffer                BufferHandle;
     VkMemoryRequirements    MemoryRequirements;
-    //TODO
     VkMemoryPropertyFlags   MemoryFlags;
-    //the fields below are only filled while allocating binding the buffer to memory
+    //the fields below are only filled while allocating and binding the buffer to memory
     VkDeviceSize            OffsetInMemoryInBytes;
     VkDeviceMemory          Memory;
 };
 
 struct eng3dObject{
-    struct DataFromDae      daeData;
-    struct engBufferHandle* writeVertexBufferP;
-    struct engBufferHandle* readVertexBufferP;  //readVertexBufferP can be the same pointer as writeVertexBufferP for unified memory
-    VkDeviceSize PosNormUvInBufOffset;
-    VkDeviceSize IdxInBufOffset;
-    uint32_t vertexCount;
+    struct DataFromDae       daeData;
+    struct engBufferHandle*  VertexBufferP;
+    struct engTextureHandle* DiffuseImageP;
+    VkDeviceSize             PosNormUvInBufOffset;
+    VkDeviceSize             IdxInBufOffset;
+    uint32_t                 vertexCount;
 };
-
+DlTypedef_plain(eng3dObj,struct eng3dObject*);
 
 
 struct _engExtensionsAndLayers{
@@ -136,19 +152,22 @@ void eng_createShaderModule(struct VulkanRuntimeInfo* vkRuntimeInfoP,char* Shade
         dprintf(DBGT_ERROR,"Could not open file %s for compilation",ShaderFileLocation);
         exit(1);
     }
-    struct xmlTreeElement* xmlRootElementP;
+    xmlTreeElement* xmlRootElementP;
     readXML(ShaderXmlFileP,&xmlRootElementP);
 
-    struct xmlTreeElement* VertexShaderXmlElmntP=getFirstSubelementWith(xmlRootElementP,Dl_utf32_fromString("vertex"),NULL,NULL,0,1);
-    struct xmlTreeElement* VertexShaderContentXmlElmntP=getFirstSubelementWith(VertexShaderXmlElmntP,NULL,NULL,NULL,xmltype_chardata,1);
-    char* VertexShaderAsciiSourceP=(char*)malloc((VertexShaderContentXmlElmntP->content->itemcnt+1)*sizeof(char));
-    uint32_t VertexSourceLength=utf32CutASCII(VertexShaderContentXmlElmntP->content->items,VertexShaderContentXmlElmntP->content->itemcnt,VertexShaderAsciiSourceP);
+    xmlTreeElement* VertexShaderXmlElmntP=getFirstSubelementWithASCII(xmlRootElementP,"vertex",NULL,NULL,xmltype_tag,0);
+    xmlTreeElement* VertexShaderContentXmlElmntP=getFirstSubelementWith(VertexShaderXmlElmntP,NULL,NULL,NULL,xmltype_chardata,0);
+    char* VertexShaderAsciiSourceP=(char*)malloc((VertexShaderContentXmlElmntP->nameOrContent->itemcnt+1)*sizeof(char));
+    uint32_t VertexSourceLength=utf32CutASCII(VertexShaderContentXmlElmntP->nameOrContent->items,
+                                              VertexShaderContentXmlElmntP->nameOrContent->itemcnt,
+                                              VertexShaderAsciiSourceP);
 
-
-    struct xmlTreeElement* FragmentShaderXmlElmntP=getFirstSubelementWith(xmlRootElementP,Dl_utf32_fromString("fragment"),NULL,NULL,0,1);
-    struct xmlTreeElement* FragmentShaderContentXmlElmntP=getFirstSubelementWith(FragmentShaderXmlElmntP,NULL,NULL,NULL,xmltype_chardata,1);
-    char* FragmentShaderAsciiSourceP=(char*)malloc((FragmentShaderContentXmlElmntP->content->itemcnt+1)*sizeof(char));
-    uint32_t FragmentSourceLength=utf32CutASCII(FragmentShaderContentXmlElmntP->content->items,FragmentShaderContentXmlElmntP->content->itemcnt,FragmentShaderAsciiSourceP);
+    xmlTreeElement* FragmentShaderXmlElmntP=getFirstSubelementWithASCII(xmlRootElementP,"fragment",NULL,NULL,xmltype_tag,0);
+    xmlTreeElement* FragmentShaderContentXmlElmntP=getFirstSubelementWithASCII(FragmentShaderXmlElmntP,NULL,NULL,NULL,xmltype_chardata,0);
+    char* FragmentShaderAsciiSourceP=(char*)malloc((FragmentShaderContentXmlElmntP->nameOrContent->itemcnt+1)*sizeof(char));
+    uint32_t FragmentSourceLength=utf32CutASCII(FragmentShaderContentXmlElmntP->nameOrContent->items,
+                                                FragmentShaderContentXmlElmntP->nameOrContent->itemcnt,
+                                                FragmentShaderAsciiSourceP);
 
     shaderc_compiler_t shaderCompilerObj=shaderc_compiler_initialize();
     shaderc_compilation_result_t compResultVertex=shaderc_compile_into_spv(shaderCompilerObj,VertexShaderAsciiSourceP,VertexSourceLength,shaderc_glsl_vertex_shader,ShaderFileLocation,"main",NULL);
@@ -259,8 +278,27 @@ void _eng_VertexBuffer_createHandle(struct VulkanRuntimeInfo* vkRuntimeInfoP, st
     vkGetBufferMemoryRequirements(vkRuntimeInfoP->device,BufferWithSpecifiedSizeP->BufferHandle,&(BufferWithSpecifiedSizeP->MemoryRequirements));
 }
 
+void _eng_ImageTexture_createHandle(struct VulkanRuntimeInfo* vkRuntimeInfoP,VkFormat imageFormat,struct engTextureHandle* TextureWithSpecifiedDimensionsP,uint32_t srcOrDstBit){
+    VkImageCreateInfo ImageInfo={0};
+    ImageInfo.sType=VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    ImageInfo.arrayLayers=1;
+    ImageInfo.extent=TextureWithSpecifiedDimensionsP->ContentExtentInPx;
+    ImageInfo.format=imageFormat;
+    ImageInfo.imageType=VK_IMAGE_TYPE_2D;
+    ImageInfo.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
+    ImageInfo.mipLevels=1;
+    ImageInfo.queueFamilyIndexCount=1;
+    ImageInfo.pQueueFamilyIndices=&(vkRuntimeInfoP->graphics_queue_family_idx);
+    ImageInfo.samples=VK_SAMPLE_COUNT_1_BIT;
+    ImageInfo.sharingMode=VK_SHARING_MODE_EXCLUSIVE;
+    ImageInfo.tiling=VK_IMAGE_TILING_OPTIMAL;
+    ImageInfo.usage=VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT|srcOrDstBit;
+    vkCreateImage(vkRuntimeInfoP->device,&ImageInfo,NULL,&(TextureWithSpecifiedDimensionsP->ImageHandle));
+}
+
 void _eng_Memory_allocate(struct VulkanRuntimeInfo* vkRuntimeInfoP,VkDeviceMemory* VertexDeviceMemoryP,VkDeviceSize VertexMemoryAllocationSize,uint32_t MemoryTypeIdx){
     //Allocate Memory for host local buffer
+    //TODO log allocations and let findBestBuffer know how much memory is already used
     VkMemoryAllocateInfo UniformBufferAllocateInfo={0};
     UniformBufferAllocateInfo.sType             =VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     UniformBufferAllocateInfo.allocationSize    =VertexMemoryAllocationSize;
@@ -310,19 +348,31 @@ void _eng_DynamicUnifBuf_allocateAndBind(struct VulkanRuntimeInfo* vkRuntimeInfo
     CHK_VK(vkBindBufferMemory(vkRuntimeInfoP->device,BufferWithSpecifiedSizeP->BufferHandle,BufferWithSpecifiedSizeP->Memory,0));
 }
 
-void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP){
-    //struct eng3dObject ObjectToBeLoaded;    TODO remove this global hack
-    VkDeviceSize RoughMemoryEstimate=0;
-    for(int ObjectNum=0;ObjectNum<1;ObjectNum++){
-        daeLoader_load("./res/untitled.dae","Cube-mesh",&(ObjectToBeLoaded.daeData));
-        ObjectToBeLoaded.readVertexBufferP=(struct engBufferHandle*)malloc(sizeof(struct engBufferHandle));
-        ObjectToBeLoaded.PosNormUvInBufOffset=0;
-        ObjectToBeLoaded.IdxInBufOffset=ObjectToBeLoaded.daeData.CombinedPsNrUvDlP->itemcnt*sizeof(float);
+/*void _eng_init_buffers(struct DynamicList* ){
 
-        ObjectToBeLoaded.readVertexBufferP->ContentSizeInBytes=((ObjectToBeLoaded.daeData.CombinedPsNrUvDlP->itemcnt*sizeof(float))
-                                                                +(ObjectToBeLoaded.daeData.IndexingDlP->itemcnt*sizeof(uint32_t)));
-        _eng_VertexBuffer_createHandle(vkRuntimeInfoP,ObjectToBeLoaded.readVertexBufferP,VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-        RoughMemoryEstimate+=ObjectToBeLoaded.readVertexBufferP->MemoryRequirements.size+ObjectToBeLoaded.readVertexBufferP->MemoryRequirements.alignment*16;
+}*/
+
+
+void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP,Dl_modelPathAndName* modelPathAndNameDlP){
+    Dl_eng3dObj* all3dObjects=Dl_eng3dObj_alloc(modelPathAndNameDlP->itemcnt,0);
+    //struct eng3dObject ObjectToBeLoaded;    TODO remove this global hack
+    for(uint32_t ModelNum=0;ModelNum<modelPathAndNameDlP->itemcnt;ModelNum++){
+        Dl_utf32Char* FilePathString=modelPathAndNameDlP->items[ModelNum]->pathString;
+        Dl_utf32Char* ModelNameString=modelPathAndNameDlP->items[ModelNum]->modelName;
+        daeLoader_load(FilePathString,ModelNameString,&(all3dObjects->items[ModelNum]->daeData));
+    }
+    VkDeviceSize RoughMemoryEstimate=0;
+    for(int ObjectNum=0;ObjectNum<all3dObjects->itemcnt;ObjectNum++){
+        struct eng3dObject* current3dObjectP=all3dObjects->items[ObjectNum];
+        daeLoader_load("./res/untitled.dae","Cube-mesh",&(current3dObjectP->daeData));
+        current3dObjectP->VertexBufferP=(struct engBufferHandle*)malloc(sizeof(struct engBufferHandle));
+        current3dObjectP->PosNormUvInBufOffset=0;
+        current3dObjectP->IdxInBufOffset=current3dObjectP->daeData.CombinedPsNrUvDlP->itemcnt*sizeof(float);
+
+        current3dObjectP->VertexBufferP->ContentSizeInBytes=((current3dObjectP->daeData.CombinedPsNrUvDlP->itemcnt*sizeof(float))
+                                                            +(current3dObjectP->daeData.IndexingDlP->itemcnt*sizeof(uint32_t)));
+        _eng_VertexBuffer_createHandle(vkRuntimeInfoP,ObjectToBeLoaded.VertexBufferP,VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        RoughMemoryEstimate+=ObjectToBeLoaded.VertexBufferP->MemoryRequirements.size+ObjectToBeLoaded.VertexBufferP->MemoryRequirements.alignment*16;
     }
 
     //Check for unified memory
@@ -346,7 +396,7 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     }
 
     //get maximum alignment required
-    VkDeviceSize MaxAlignment=max_uint32_t(ObjectToBeLoaded.writeVertexBufferP->MemoryRequirements.alignment,
+    VkDeviceSize MaxAlignment=max_uint32(ObjectToBeLoaded.writeVertexBufferP->MemoryRequirements.alignment,
                                            ObjectToBeLoaded.readVertexBufferP->MemoryRequirements.alignment);
 
     //Calculate the required size and handle alignment
@@ -394,13 +444,6 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP){
         }
     }
 
-
-    //Setup Uniform Buffer
-    //ToDo support per object mvp matrices
-    vkRuntimeInfoP->FastUpdatingUniformBuffer.ContentSizeInBytes=sizeof(mat4x4)*vkRuntimeInfoP->imagesInFlightCount;
-    _eng_DynamicUnifBuf_allocateAndBind(vkRuntimeInfoP,&(vkRuntimeInfoP->FastUpdatingUniformBuffer));
-
-
     //Move data into write buffer
     for(int ObjectNum=0;ObjectNum<1;ObjectNum++){
         //Bind Memory To Buffers
@@ -428,6 +471,14 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     }
     //end recording
     _eng_cmdBuf_endAndSubmitSingleUse(vkRuntimeInfoP,UploadCommandBuffer);
+
+
+
+    //Setup Uniform Buffer, no upload needed
+    //ToDo support per object mvp matrices
+    vkRuntimeInfoP->FastUpdatingUniformBuffer.ContentSizeInBytes=sizeof(mat4x4)*vkRuntimeInfoP->imagesInFlightCount;
+    _eng_DynamicUnifBuf_allocateAndBind(vkRuntimeInfoP,&(vkRuntimeInfoP->FastUpdatingUniformBuffer));
+
 
     //Cleanup
     if(!unifiedMemoryFlag){
@@ -1189,11 +1240,8 @@ void eng_createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     //Pipeline Layout for Uniforms
     VkPipelineLayoutCreateInfo PipelineLayoutInfo={0};
     PipelineLayoutInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    //TODO reenable
     PipelineLayoutInfo.setLayoutCount=1;
     PipelineLayoutInfo.pSetLayouts=vkRuntimeInfoP->descriptorSetLayoutP;
-    //PipelineLayoutInfo.setLayoutCount=0;
-    //PipelineLayoutInfo.pSetLayouts=NULL;
     PipelineLayoutInfo.pushConstantRangeCount=0;
     PipelineLayoutInfo.pPushConstantRanges=NULL;
 
@@ -1436,7 +1484,13 @@ int main(int argc, char** argv){
     eng_createGraphicsPipeline(&engVkRuntimeInfo);                          //depends on eng_createShaderModule and eng_createImageViews and eng_createDescriptorPoolAndSets
     eng_createFramebuffers(&engVkRuntimeInfo);                              //depends on eng_createRenderPass   and eng_createImageViews
     eng_createCommandPool(&engVkRuntimeInfo);                               //depends on eng_createDevice
-    eng_load_static_models(&engVkRuntimeInfo);                              //depends on eng_createCommandPool and creates vertex buffer
+    Dl_modelPathAndName* modelPathAndNameDlP=Dl_modelPathAndName_alloc(2,NULL);
+    modelPathAndNameDlP->items[0]->pathString=Dl_utf32Char_fromString("cube.dae");
+    modelPathAndNameDlP->items[0]->modelName =Dl_utf32Char_fromString("cube");
+    modelPathAndNameDlP->items[1]->pathString=Dl_utf32Char_fromString("cylinder.dae");
+    modelPathAndNameDlP->items[1]->modelName =Dl_utf32Char_fromString("cylinder");
+
+    eng_load_static_models(&engVkRuntimeInfo,modelPathAndNameDlP);          //depends on eng_createCommandPool and creates vertex buffer
     eng_writeDescriptorSets(&engVkRuntimeInfo);                             //depends on eng_load_static_models
     eng_createRenderCommandBuffers(&engVkRuntimeInfo);                      //depends on eng_createCommandPool and eng_createFramebuffers and eng_load_static_models and createPipeline
     eng_createSynchronizationPrimitives(&engVkRuntimeInfo);

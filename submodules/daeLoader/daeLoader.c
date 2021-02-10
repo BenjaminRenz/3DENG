@@ -1,85 +1,84 @@
 #include "daeLoader/daeLoader.h"
 #include "bmpLoader/bmpLoader.h"
 #include "xmlReader/xmlReader.h"
+#include "xmlReader/xmlHelper.h"
 #include "debugPrint/debugPrint.h"
 #include "stdlib.h"
 void _daeLoader_getTextureData(struct DataFromDae* outputDataP,struct xmlTreeElement* xmlColladaElementP);
-void _daeLoader_getVertexData(struct DataFromDae* outputDataP,struct xmlTreeElement* xmlColladaElementP,char* meshId);
+void _daeLoader_getVertexData(struct DataFromDae* outputDataP,struct xmlTreeElement* xmlColladaElementP,Dl_utf32Char* meshIdString);
 
 
-void daeLoader_load(char* filePath,char* meshIdStringP,struct DataFromDae* outputDataP){
-    FILE* cylinderDaeFileP=fopen(filePath,"rb");
-    struct xmlTreeElement* xmlDaeRootP=0;
+void daeLoader_load(Dl_utf32Char* filePathString,Dl_utf32Char* meshIdString,struct DataFromDae* outputDataP){
+    char* asciiFilepath=Dl_utf32Char_toStringAlloc(filePathString);
+    FILE* cylinderDaeFileP=fopen(asciiFilepath,"rb");
+    free(asciiFilepath);
+    xmlTreeElement* xmlDaeRootP=0;
     readXML(cylinderDaeFileP,&xmlDaeRootP);
     fclose(cylinderDaeFileP);
     //printXMLsubelements(xmlDaeRootP);
-    struct xmlTreeElement* xmlColladaElementP=getNthChildElmntOrChardata(xmlDaeRootP,0);
-    _daeLoader_getVertexData(outputDataP,xmlColladaElementP,meshIdStringP);
+    xmlTreeElement* xmlColladaElementP=getNthChildWithType(xmlDaeRootP,0,xmltype_tag);
+    _daeLoader_getVertexData(outputDataP,xmlColladaElementP,meshIdString);
     _daeLoader_getTextureData(outputDataP,xmlColladaElementP);
-
-
 }
 
-void _daeLoader_getTextureData(struct DataFromDae* outputDataP,struct xmlTreeElement* xmlColladaElementP){
-    struct xmlTreeElement* xmlLibaryImagesP=getFirstSubelementWithASCII(xmlColladaElementP,"library_images",NULL,NULL,xmltype_tag,0);
-    struct DynamicList*    allXmlImagesDlP=getAllSubelementsWithASCII(xmlLibaryImagesP,"image",NULL,NULL,xmltype_tag,0);
+void _daeLoader_getTextureData(struct DataFromDae* outputDataP,xmlTreeElement* xmlColladaElementP){
+    xmlTreeElement* xmlLibaryImagesP=getFirstSubelementWithASCII(xmlColladaElementP,"library_images",NULL,NULL,xmltype_tag,0);
+    Dl_utf32Char* PrePathString=Dl_utf32Char_fromString("./res/");
+    Dl_xmlP* allXmlImagesDlP=getAllSubelementsWithASCII(xmlLibaryImagesP,"image",NULL,NULL,xmltype_tag,0);
     for(uint32_t XmlImageElementIdx=0;XmlImageElementIdx<allXmlImagesDlP->itemcnt;XmlImageElementIdx++){
         struct xmlTreeElement* xmlImageP=((struct xmlTreeElement**)allXmlImagesDlP->items)[XmlImageElementIdx];
         struct xmlTreeElement* xmlImageInitP=getFirstSubelementWithASCII(xmlImageP,"init_from",NULL,NULL,xmltype_tag,0);
         struct xmlTreeElement* xmlImageInitContentP=getFirstSubelementWithASCII(xmlImageInitP,NULL,NULL,NULL,xmltype_chardata,0);
-        struct DynamicList* LoadImagePathDlP=xmlImageInitContentP->content;
-        LoadImagePathDlP=DlCombine_freeArg1(Dl_utf32_fromString("./res/"),LoadImagePathDlP);
-        char* imageLoadPathString=Dl_utf32_toString(LoadImagePathDlP);
+        Dl_utf32Char* LoadImageFilenameString=xmlImageInitContentP->nameOrContent;
+        Dl_utf32Char* LoadImagePathString=Dl_utf32Char_mergeDulplicate(PrePathString,LoadImageFilenameString);
+        char* imageLoadPathString=Dl_utf32Char_toStringAlloc_freeArg1(LoadImagePathString);
         dprintf(DBGT_INFO,"Load Image from %s",imageLoadPathString);
-        //TODO call load bmp
-        uint32_t* ImageDataP;
-        uint32_t width;
-        uint32_t height;
-        bmpLoader_load(imageLoadPathString,"BGRA",&ImageDataP,width,height);
-        free(imageLoadPathString);
+
+        outputDataP->DiffuseTexture=bmpLoader_load(imageLoadPathString,"BGRA");
     }
+    Dl_utf32Char_delete(PrePathString);
 }
 
-void _daeLoader_getVertexData(struct DataFromDae* outputDataP,struct xmlTreeElement* xmlColladaElementP,char* meshId){
-    struct xmlTreeElement* xmlLibGeoElementP=getFirstSubelementWithASCII(xmlColladaElementP,"library_geometries",NULL,NULL,0,0);
-    struct xmlTreeElement* xmlGeoElementP=getFirstSubelementWithASCII(xmlLibGeoElementP,"geometry","id",Dl_utf32_fromString(meshId),0,0);
+void _daeLoader_getVertexData(struct DataFromDae* outputDataP,xmlTreeElement* xmlColladaElementP,Dl_utf32Char* meshIdString){
+    xmlTreeElement* xmlLibGeoElementP=getFirstSubelementWithASCII(xmlColladaElementP,"library_geometries",NULL,NULL,xmltype_tag,0);
+    xmlTreeElement* xmlGeoElementP=getFirstSubelementWithASCII(xmlLibGeoElementP,"geometry","id",meshIdString,xmltype_tag,0);
     if(!xmlGeoElementP){
-        dprintf(DBGT_ERROR,"The collada file does not contain a mesh with the name %s",meshId);
+        dprintf(DBGT_ERROR,"The collada file does not contain a mesh with the name %s",Dl_utf32Char_toStringAlloc(meshIdString));
         exit(1);
     }
-    struct xmlTreeElement* xmlMeshElementP=getFirstSubelementWithASCII(xmlGeoElementP,"mesh",NULL,NULL,0,0);
+    xmlTreeElement* xmlMeshElementP=getFirstSubelementWithASCII(xmlGeoElementP,"mesh",NULL,NULL,0,0);
 
     //Get triangles xml element
-    struct xmlTreeElement* xmlTrianglesP=getFirstSubelementWithASCII(xmlMeshElementP,"triangles",NULL,NULL,0,0);
-    struct DynamicList* TrianglesCountString=getValueFromKeyNameASCII(xmlTrianglesP->attributes,"count");
-    struct DynamicList* TrianglesCount=Dl_utf32_to_Dl_int64_freeArg1(Dl_CMatch_create(2,' ',' '),TrianglesCountString);
-    dprintf(DBGT_INFO,"Model has %lld triangles",((int64_t*)TrianglesCount->items)[0]);
+    xmlTreeElement* xmlTrianglesP=getFirstSubelementWithASCII(xmlMeshElementP,"triangles",NULL,NULL,0,0);
+    Dl_utf32Char* TrianglesCountString=getValueFromKeyNameASCII(xmlTrianglesP->attributes,"count");
+    Dl_int64* TrianglesCount=Dl_utf32Char_to_int64_freeArg1(Dl_CM_initFromList(' ',' '),TrianglesCountString);
+    dprintf(DBGT_INFO,"Model has %lld triangles",TrianglesCount->items[0]);
 
     //get triangle position, normal, uv index list
-    struct xmlTreeElement* xmlTrianglesOrderP=getFirstSubelementWithASCII(xmlTrianglesP,"p",NULL,NULL,0,0);
+    xmlTreeElement* xmlTrianglesOrderP=getFirstSubelementWithASCII(xmlTrianglesP,"p",NULL,NULL,0,0);
     if(!xmlTrianglesOrderP){
         dprintf(DBGT_ERROR,"No Triangles Order list found");exit(1);
     }
-    struct xmlTreeElement* xmlTrianglesOrderContentP=getNthChildElmntOrChardata(xmlTrianglesOrderP,0);
-    if(!xmlTrianglesOrderContentP->content->itemcnt){
+    xmlTreeElement* xmlTrianglesOrderContentP=getNthChildWithType(xmlTrianglesOrderP,0,xmltype_chardata);
+    if(!xmlTrianglesOrderContentP->nameOrContent->itemcnt){
         dprintf(DBGT_ERROR,"Triangles Order List empty");exit(1);
     }
-    struct DynamicList* TempTriangleIndexDlP=Dl_utf32_to_Dl_int64_freeArg1(Dl_CMatch_create(2,' ',' '),xmlTrianglesOrderContentP->content);
+    Dl_int64* TempTriangleIndexDlP=Dl_utf32Char_to_int64_freeArg1(Dl_CM_initFromList(' ',' '),xmlTrianglesOrderContentP->nameOrContent);
 
     //Define structures to copy read data to
-    struct DynamicList* PosDlP;
-    struct DynamicList* PosIndexDlP;
-    struct DynamicList* NormDlP;
-    struct DynamicList* NormIndexDlP;
-    struct DynamicList* UvDlP;
-    struct DynamicList* UvIndexDlP;
+    Dl_float* PosDlP;
+    Dl_int32* PosIndexDlP;
+    Dl_float* NormDlP;
+    Dl_int32* NormIndexDlP;
+    Dl_float* UvDlP;
+    Dl_int32* UvIndexDlP;
 
     //Get input accessor and position,vertex,normal source
-    struct DynamicList* InputXmlTrianglesP=getAllSubelementsWithASCII(xmlTrianglesP,"input",NULL,NULL,0,0);
+    Dl_xmlP* InputXmlTrianglesP=getAllSubelementsWithASCII(xmlTrianglesP,"input",NULL,NULL,0,0);
     for(uint32_t inputsemantic=0;inputsemantic<InputXmlTrianglesP->itemcnt;inputsemantic++){
-        struct DynamicList* semanticStringDlP=getValueFromKeyNameASCII(((struct xmlTreeElement**)(InputXmlTrianglesP->items))[inputsemantic]->attributes,"semantic");
-        struct DynamicList* offsetStringDlP=getValueFromKeyNameASCII(((struct xmlTreeElement**)InputXmlTrianglesP->items)[inputsemantic]->attributes,"offset");
-        struct DynamicList* offsetNumbersDlP=Dl_utf32_to_Dl_int64(Dl_CMatch_create(2,' ',' '),offsetStringDlP);
+        Dl_utf32Char* semanticStringDlP=getValueFromKeyNameASCII(InputXmlTrianglesP->items[inputsemantic]->attributes,"semantic");
+        Dl_utf32Char* offsetStringDlP  =getValueFromKeyNameASCII(InputXmlTrianglesP->items[inputsemantic]->attributes,"offset");
+        struct DynamicList* offsetNumbersDlP =Dl_utf32_to_Dl_int64(Dl_CMatch_create(2,' ',' '),offsetStringDlP);
         struct DynamicList* sourceStringWithHashtagDlP=getValueFromKeyNameASCII(((struct xmlTreeElement**)InputXmlTrianglesP->items)[inputsemantic]->attributes,"source");
         struct DynamicList* sourceStringDlP=Dl_utf32_Substring(sourceStringWithHashtagDlP,1,-1);
         //get corresponding source data

@@ -62,16 +62,22 @@
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="submodules/daeLoader/daeLoader.h" />
+		<Unit filename="submodules/debugPrint/debugPrint.h" />
+		<Unit filename="submodules/dynList/dynList.h" />
+		<Unit filename="submodules/glfw/glfw3.h" />
 		<Unit filename="submodules/linmath/linmath.h" />
 		<Unit filename="submodules/mathHelper/mathHelper.c">
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="submodules/mathHelper/mathHelper.h" />
-		<Unit filename="submodules/xmlReader/debug.h" />
 		<Unit filename="submodules/xmlReader/stringutils.c">
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="submodules/xmlReader/stringutils.h" />
+		<Unit filename="submodules/xmlReader/xmlHelper.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="submodules/xmlReader/xmlHelper.h" />
 		<Unit filename="submodules/xmlReader/xmlReader.c">
 			<Option compilerVar="CC" />
 		</Unit>
