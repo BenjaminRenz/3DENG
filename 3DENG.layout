@@ -2,24 +2,49 @@
 <CodeBlocks_layout_file>
 	<FileVersion major="1" minor="0" />
 	<ActiveTarget name="Debug" />
+	<File name="submodules\xmlReader\xmlReader_matchHelper.h" open="1" top="0" tabpos="11" split="0" active="1" splitpos="0" zoom_1="14" zoom_2="0">
+		<Cursor>
+			<Cursor1 position="6504" topLine="0" />
+		</Cursor>
+	</File>
+	<File name="res\untitled.dae" open="1" top="0" tabpos="9" split="0" active="1" splitpos="0" zoom_1="9" zoom_2="0">
+		<Cursor>
+			<Cursor1 position="47" topLine="0" />
+		</Cursor>
+	</File>
+	<File name="submodules\linmath\linmath.h" open="0" top="0" tabpos="4" split="0" active="1" splitpos="0" zoom_1="16" zoom_2="0">
+		<Cursor>
+			<Cursor1 position="202" topLine="0" />
+		</Cursor>
+	</File>
+	<File name="submodules\xmlReader\stringutils.h" open="1" top="0" tabpos="2" split="0" active="1" splitpos="0" zoom_1="14" zoom_2="0">
+		<Cursor>
+			<Cursor1 position="172" topLine="2" />
+		</Cursor>
+	</File>
+	<File name="submodules\daeLoader\daeLoader.c" open="1" top="0" tabpos="7" split="0" active="1" splitpos="0" zoom_1="13" zoom_2="0">
+		<Cursor>
+			<Cursor1 position="8188" topLine="96" />
+		</Cursor>
+	</File>
+	<File name="submodules\xmlReader\xmlHelper.h" open="1" top="0" tabpos="12" split="0" active="1" splitpos="0" zoom_1="9" zoom_2="0">
+		<Cursor>
+			<Cursor1 position="2308" topLine="0" />
+		</Cursor>
+	</File>
+	<File name="submodules\mathHelper\mathHelper.h" open="1" top="0" tabpos="5" split="0" active="1" splitpos="0" zoom_1="17" zoom_2="0">
+		<Cursor>
+			<Cursor1 position="837" topLine="0" />
+		</Cursor>
+	</File>
 	<File name="submodules\glfw\glfw3.h" open="0" top="0" tabpos="0" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
 			<Cursor1 position="0" topLine="285" />
 		</Cursor>
 	</File>
-	<File name="submodules\xmlReader\xmlReader.c" open="0" top="0" tabpos="0" split="0" active="1" splitpos="0" zoom_1="10" zoom_2="0">
+	<File name="res\vk_setup.xml" open="1" top="0" tabpos="16" split="0" active="1" splitpos="0" zoom_1="13" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="7097" topLine="106" />
-		</Cursor>
-	</File>
-	<File name="main.c" open="1" top="1" tabpos="1" split="0" active="1" splitpos="0" zoom_1="12" zoom_2="0">
-		<Cursor>
-			<Cursor1 position="5633" topLine="150" />
-		</Cursor>
-	</File>
-	<File name="submodules\mathHelper\mathHelper.h" open="1" top="0" tabpos="9" split="0" active="1" splitpos="0" zoom_1="17" zoom_2="0">
-		<Cursor>
-			<Cursor1 position="0" topLine="0" />
+			<Cursor1 position="232" topLine="0" />
 		</Cursor>
 	</File>
 	<File name="res\shader1.xml" open="0" top="0" tabpos="2" split="0" active="1" splitpos="0" zoom_1="19" zoom_2="0">
@@ -27,19 +52,24 @@
 			<Cursor1 position="474" topLine="0" />
 		</Cursor>
 	</File>
-	<File name="submodules\xmlReader\stringutils.h" open="1" top="0" tabpos="2" split="0" active="1" splitpos="0" zoom_1="9" zoom_2="0">
+	<File name="main.c" open="1" top="1" tabpos="1" split="0" active="1" splitpos="0" zoom_1="11" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="283" topLine="0" />
+			<Cursor1 position="21223" topLine="380" />
 		</Cursor>
 	</File>
-	<File name="submodules\dynList\dynList.h" open="1" top="0" tabpos="12" split="0" active="1" splitpos="0" zoom_1="13" zoom_2="0">
+	<File name="submodules\xmlReader\xmlReader.c" open="1" top="0" tabpos="10" split="0" active="1" splitpos="0" zoom_1="10" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="7631" topLine="49" />
+			<Cursor1 position="5523" topLine="87" />
 		</Cursor>
 	</File>
-	<File name="submodules\linmath\linmath.h" open="1" top="0" tabpos="4" split="0" active="1" splitpos="0" zoom_1="16" zoom_2="0">
+	<File name="submodules\xmlReader\xmlHelper.c" open="1" top="0" tabpos="13" split="0" active="1" splitpos="0" zoom_1="9" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="202" topLine="0" />
+			<Cursor1 position="1585" topLine="0" />
+		</Cursor>
+	</File>
+	<File name="submodules\daeLoader\daeLoader.h" open="1" top="0" tabpos="8" split="0" active="1" splitpos="0" zoom_1="15" zoom_2="0">
+		<Cursor>
+			<Cursor1 position="190" topLine="0" />
 		</Cursor>
 	</File>
 	<File name="res\kegel_ohne_camera.dae" open="0" top="0" tabpos="7" split="0" active="1" splitpos="0" zoom_1="6" zoom_2="0">
@@ -47,59 +77,34 @@
 			<Cursor1 position="4506" topLine="0" />
 		</Cursor>
 	</File>
-	<File name="res\vk_setup.xml" open="0" top="0" tabpos="1" split="0" active="1" splitpos="0" zoom_1="13" zoom_2="0">
+	<File name="submodules\dynList\dynList.h" open="1" top="0" tabpos="6" split="0" active="1" splitpos="0" zoom_1="13" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="19" topLine="0" />
+			<Cursor1 position="8191" topLine="47" />
 		</Cursor>
 	</File>
-	<File name="submodules\xmlReader\xmlHelper.c" open="1" top="0" tabpos="8" split="0" active="1" splitpos="0" zoom_1="9" zoom_2="0">
+	<File name="submodules\bmpLoader\bmpLoader.h" open="0" top="0" tabpos="0" split="0" active="1" splitpos="0" zoom_1="10" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="9507" topLine="218" />
+			<Cursor1 position="1497" topLine="0" />
 		</Cursor>
 	</File>
-	<File name="submodules\xmlReader\xmlReader.h" open="1" top="0" tabpos="6" split="0" active="1" splitpos="0" zoom_1="14" zoom_2="0">
+	<File name="submodules\xmlReader\xmlReader.h" open="1" top="0" tabpos="14" split="0" active="1" splitpos="0" zoom_1="14" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="1290" topLine="3" />
+			<Cursor1 position="773" topLine="0" />
 		</Cursor>
 	</File>
-	<File name="submodules\daeLoader\daeLoader.c" open="1" top="0" tabpos="11" split="0" active="1" splitpos="0" zoom_1="17" zoom_2="0">
+	<File name="submodules\xmlReader\stringutils.c" open="1" top="0" tabpos="3" split="0" active="1" splitpos="0" zoom_1="6" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="1052" topLine="0" />
+			<Cursor1 position="26258" topLine="416" />
 		</Cursor>
 	</File>
-	<File name="res\untitled.dae" open="0" top="0" tabpos="3" split="0" active="1" splitpos="0" zoom_1="9" zoom_2="0">
+	<File name="submodules\bmpLoader\bmpLoader.c" open="1" top="0" tabpos="15" split="0" active="1" splitpos="0" zoom_1="9" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="712" topLine="3" />
+			<Cursor1 position="9516" topLine="176" />
 		</Cursor>
 	</File>
-	<File name="submodules\mathHelper\mathHelper.c" open="1" top="0" tabpos="10" split="0" active="1" splitpos="0" zoom_1="16" zoom_2="0">
+	<File name="submodules\mathHelper\mathHelper.c" open="1" top="0" tabpos="4" split="0" active="1" splitpos="0" zoom_1="16" zoom_2="0">
 		<Cursor>
 			<Cursor1 position="1261" topLine="0" />
-		</Cursor>
-	</File>
-	<File name="submodules\xmlReader\xmlHelper.h" open="1" top="0" tabpos="7" split="0" active="1" splitpos="0" zoom_1="9" zoom_2="0">
-		<Cursor>
-			<Cursor1 position="1465" topLine="0" />
-		</Cursor>
-	</File>
-	<File name="submodules\xmlReader\xmlReader_matchHelper.h" open="1" top="0" tabpos="5" split="0" active="1" splitpos="0" zoom_1="14" zoom_2="0">
-		<Cursor>
-			<Cursor1 position="4021" topLine="66" />
-		</Cursor>
-	</File>
-	<File name="submodules\daeLoader\daeLoader.h" open="0" top="0" tabpos="0" split="0" active="1" splitpos="0" zoom_1="15" zoom_2="0">
-		<Cursor>
-			<Cursor1 position="518" topLine="0" />
-		</Cursor>
-	</File>
-	<File name="submodules\xmlReader\stringutils.c" open="1" top="0" tabpos="3" split="0" active="1" splitpos="0" zoom_1="15" zoom_2="0">
-		<Cursor>
-			<Cursor1 position="5252" topLine="169" />
-		</Cursor>
-	</File>
-	<File name="submodules\bmpLoader\bmpLoader.h" open="0" top="0" tabpos="0" split="0" active="1" splitpos="0" zoom_1="7" zoom_2="0">
-		<Cursor>
-			<Cursor1 position="1825" topLine="0" />
 		</Cursor>
 	</File>
 </CodeBlocks_layout_file>

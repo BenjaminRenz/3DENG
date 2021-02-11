@@ -78,29 +78,29 @@ void _daeLoader_getVertexData(struct DataFromDae* outputDataP,xmlTreeElement* xm
     for(uint32_t inputsemantic=0;inputsemantic<InputXmlTrianglesP->itemcnt;inputsemantic++){
         Dl_utf32Char* semanticStringDlP=getValueFromKeyNameASCII(InputXmlTrianglesP->items[inputsemantic]->attributes,"semantic");
         Dl_utf32Char* offsetStringDlP  =getValueFromKeyNameASCII(InputXmlTrianglesP->items[inputsemantic]->attributes,"offset");
-        struct DynamicList* offsetNumbersDlP =Dl_utf32_to_Dl_int64(Dl_CMatch_create(2,' ',' '),offsetStringDlP);
-        struct DynamicList* sourceStringWithHashtagDlP=getValueFromKeyNameASCII(((struct xmlTreeElement**)InputXmlTrianglesP->items)[inputsemantic]->attributes,"source");
-        struct DynamicList* sourceStringDlP=Dl_utf32_Substring(sourceStringWithHashtagDlP,1,-1);
+        Dl_int64* offsetNumbersDlP =Dl_utf32Char_to_int64(Dl_CM_initFromList(' ',' '),offsetStringDlP);
+        Dl_utf32Char* sourceStringWithHashtagDlP=getValueFromKeyNameASCII(((struct xmlTreeElement**)InputXmlTrianglesP->items)[inputsemantic]->attributes,"source");
+        Dl_utf32Char* sourceStringDlP=Dl_utf32Char_subList(sourceStringWithHashtagDlP,1,-1);
         //get corresponding source data
-        struct xmlTreeElement* refXmlElmntP=getFirstSubelementWithASCII(xmlMeshElementP,NULL,"id",sourceStringDlP,0,0);
+        xmlTreeElement* refXmlElmntP=getFirstSubelementWithASCII(xmlMeshElementP,NULL,"id",sourceStringDlP,0,0);
         //Handle VERTEX special case, which has to jump to POSITIONS again
-        struct xmlTreeElement* sourceXmlElmntP;
-        if(Dl_utf32_compareEqual_freeArg2(refXmlElmntP->name,Dl_utf32_fromString("vertices"))){
-            refXmlElmntP=getFirstSubelementWithASCII(refXmlElmntP,"input",NULL,NULL,0,0);
+        xmlTreeElement* sourceXmlElmntP;
+        if(Dl_utf32Char_equal_freeArg2(refXmlElmntP->nameOrContent,Dl_utf32Char_fromString("vertices"))){
+            refXmlElmntP=getFirstSubelementWithASCII(refXmlElmntP,"input",NULL,NULL,xmltype_tag,0);
             sourceStringWithHashtagDlP=getValueFromKeyNameASCII(refXmlElmntP->attributes,"source");
-            sourceStringDlP=Dl_utf32_Substring(sourceStringWithHashtagDlP,1,-1);
-            sourceXmlElmntP=getFirstSubelementWithASCII(xmlMeshElementP,NULL,"id",sourceStringDlP,0,0);
+            sourceStringDlP=Dl_utf32Char_subList(sourceStringWithHashtagDlP,1,-1);
+            sourceXmlElmntP=getFirstSubelementWithASCII(xmlMeshElementP,NULL,"id",sourceStringDlP,xmltype_tag,0);
         }else{
             sourceXmlElmntP=refXmlElmntP;
         }
-        struct xmlTreeElement* floatArrayXmlElementP=getFirstSubelementWithASCII(sourceXmlElmntP,"float_array",NULL,NULL,0,1);
-        struct xmlTreeElement* floatArrayCharDataP=getFirstSubelementWith(floatArrayXmlElementP,NULL,NULL,NULL,xmltype_chardata,1);
-        struct DynamicList* sourceFloatArrayDlP=Dl_utf32_to_Dl_float_freeArg123(Dl_CMatch_create(2,' ',' '),Dl_CMatch_create(4,'e','e','E','E'),Dl_CMatch_create(4,'.','.',',',','),floatArrayCharDataP->content);
+        xmlTreeElement* floatArrayXmlElementP=getFirstSubelementWithASCII(sourceXmlElmntP,"float_array",NULL,NULL,0,1);
+        xmlTreeElement* floatArrayCharDataP=getFirstSubelementWith(floatArrayXmlElementP,NULL,NULL,NULL,xmltype_chardata,1);
+        Dl_float* sourceFloatArrayDlP=Dl_utf32Char_to_float_freeArg123(Dl_CM_initFromList(' ',' '),Dl_CM_initFromList('e','e','E','E'),Dl_CM_initFromList('.','.',',',','),floatArrayCharDataP->nameOrContent);
         //check if FloatArray length corresponds with the expected count specified in the xml file
-        struct DynamicList* countStringDlP=getValueFromKeyNameASCII(floatArrayXmlElementP->attributes,"count");
-        struct DynamicList* countIntArrayDlP=Dl_utf32_to_Dl_int64_freeArg1(Dl_CMatch_create(2,' ',' '),countStringDlP);
+        Dl_utf32Char* countStringDlP=getValueFromKeyNameASCII(floatArrayXmlElementP->attributes,"count");
+        Dl_int64* countIntArrayDlP=Dl_utf32Char_to_int64_freeArg1(Dl_CM_initFromList(' ',' '),countStringDlP);
         if(((int64_t*)countIntArrayDlP->items)[0]!=sourceFloatArrayDlP->itemcnt){
-            dprintf(DBGT_ERROR,"Missmatch in supplied source float count, count says %lld, found were %d",((int64_t*)countIntArrayDlP)[0],sourceFloatArrayDlP->itemcnt);
+            dprintf(DBGT_ERROR,"Missmatch in supplied source float count, count says %lld, found were %d",countIntArrayDlP[0],sourceFloatArrayDlP->itemcnt);
         }
 
         uint32_t offsetInIdxArray=((int64_t*)(offsetNumbersDlP->items))[0];
@@ -109,19 +109,19 @@ void _daeLoader_getVertexData(struct DataFromDae* outputDataP,xmlTreeElement* xm
         uint32_t numberOfAllIndices=TempTriangleIndexDlP->itemcnt;
         uint32_t numberOfVertexIndices=numberOfAllIndices/stridePerVertex;
         struct DynamicList* CurrentOutputArrayDlP=0;
-        if(Dl_utf32_compareEqual_freeArg2(semanticStringDlP,Dl_utf32_fromString("VERTEX"))){
+        if(Dl_utf32Char_equal_freeArg2(semanticStringDlP,Dl_utf32Char_fromString("VERTEX"))){
             //Create and fill PosIndexDlP
-            PosIndexDlP=DlAlloc(sizeof(uint32_t),DlType_int32,numberOfVertexIndices,NULL);
+            PosIndexDlP=Dl_int32_alloc(numberOfVertexIndices,NULL);
             CurrentOutputArrayDlP=PosIndexDlP;
             PosDlP=sourceFloatArrayDlP;
-        }else if(Dl_utf32_compareEqual_freeArg2(semanticStringDlP,Dl_utf32_fromString("NORMAL"))){
+        }else if(Dl_utf32Char_equal_freeArg2(semanticStringDlP,Dl_utf32Char_fromString("NORMAL"))){
             //Create and fill NormIndexDlP
-            NormIndexDlP=DlAlloc(sizeof(uint32_t),DlType_int32,numberOfVertexIndices,NULL);
+            NormIndexDlP=Dl_int32_alloc(numberOfVertexIndices,NULL);
             CurrentOutputArrayDlP=NormIndexDlP;
             NormDlP=sourceFloatArrayDlP;
-        }else if(Dl_utf32_compareEqual_freeArg2(semanticStringDlP,Dl_utf32_fromString("TEXCOORD"))){
+        }else if(Dl_utf32Char_equal_freeArg2(semanticStringDlP,Dl_utf32Char_fromString("TEXCOORD"))){
             //Create and fill UvIndexDlP
-            UvIndexDlP=DlAlloc(sizeof(uint32_t),DlType_int32,numberOfVertexIndices,NULL);
+            UvIndexDlP=Dl_int32_alloc(numberOfVertexIndices,NULL);
             CurrentOutputArrayDlP=UvIndexDlP;
             UvDlP=sourceFloatArrayDlP;
         }else{
@@ -129,7 +129,8 @@ void _daeLoader_getVertexData(struct DataFromDae* outputDataP,xmlTreeElement* xm
             exit(1);
         }
         for(uint32_t IdxInIndexArray=0;IdxInIndexArray<numberOfVertexIndices;IdxInIndexArray++){
-            ((int32_t*)(CurrentOutputArrayDlP->items))[IdxInIndexArray]=((int64_t*)(TempTriangleIndexDlP->items))[stridePerVertex*IdxInIndexArray+offsetInIdxArray];
+            ((int32_t*)(CurrentOutputArrayDlP->items))[IdxInIndexArray]=
+                    ((int64_t*)(TempTriangleIndexDlP->items))[stridePerVertex*IdxInIndexArray+offsetInIdxArray];
         }
     }
 

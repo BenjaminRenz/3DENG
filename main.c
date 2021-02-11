@@ -33,8 +33,8 @@ do {                                                                    \
     }                                                                   \
 } while (0)
 
-uint32_t eng_get_version_number_from_xmlemnt(struct xmlTreeElement* currentReqXmlP);
-uint32_t eng_get_version_number_from_UTF32DynlistP(struct DynamicList* inputStringP);
+uint32_t eng_get_version_number_from_xmlemnt(xmlTreeElement* currentReqXmlP);
+uint32_t eng_get_version_number_from_UTF32DynlistP(Dl_utf32Char* inputStringP);
 struct xmlTreeElement* eng_get_eng_setupxml(char* FilePath,int debug_enabled);
 
 
@@ -77,8 +77,8 @@ struct eng3dObject{
     VkDeviceSize             IdxInBufOffset;
     uint32_t                 vertexCount;
 };
-DlTypedef_plain(eng3dObj,struct eng3dObject*);
-
+DlTypedef_plain(eng3dObjP,struct eng3dObject*);
+DlTypedef_plain(bufferHandle,struct engBufferHandle)
 
 struct _engExtensionsAndLayers{
     uint32_t    InstExtensionCount;
@@ -143,8 +143,6 @@ struct VulkanRuntimeInfo{
 
 VkCommandBuffer _eng_cmdBuf_startSingleUse(struct VulkanRuntimeInfo* vkRuntimeInfoP);
 void _eng_cmdBuf_endAndSubmitSingleUse(struct VulkanRuntimeInfo* vkRuntimeInfoP,VkCommandBuffer SingleUseBufferP);
-
-struct eng3dObject ObjectToBeLoaded;
 
 void eng_createShaderModule(struct VulkanRuntimeInfo* vkRuntimeInfoP,char* ShaderFileLocation){
     FILE* ShaderXmlFileP=fopen(ShaderFileLocation,"rb");
@@ -354,50 +352,51 @@ void _eng_DynamicUnifBuf_allocateAndBind(struct VulkanRuntimeInfo* vkRuntimeInfo
 
 
 void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP,Dl_modelPathAndName* modelPathAndNameDlP){
-    Dl_eng3dObj* all3dObjects=Dl_eng3dObj_alloc(modelPathAndNameDlP->itemcnt,0);
-    //struct eng3dObject ObjectToBeLoaded;    TODO remove this global hack
+    Dl_eng3dObjP* all3dObjectsDlP=Dl_eng3dObjP_alloc(modelPathAndNameDlP->itemcnt,0);
     for(uint32_t ModelNum=0;ModelNum<modelPathAndNameDlP->itemcnt;ModelNum++){
         Dl_utf32Char* FilePathString=modelPathAndNameDlP->items[ModelNum]->pathString;
         Dl_utf32Char* ModelNameString=modelPathAndNameDlP->items[ModelNum]->modelName;
-        daeLoader_load(FilePathString,ModelNameString,&(all3dObjects->items[ModelNum]->daeData));
+        daeLoader_load(FilePathString,ModelNameString,&(all3dObjectsDlP->items[ModelNum]->daeData));
     }
     VkDeviceSize RoughMemoryEstimate=0;
-    for(int ObjectNum=0;ObjectNum<all3dObjects->itemcnt;ObjectNum++){
-        struct eng3dObject* current3dObjectP=all3dObjects->items[ObjectNum];
-        daeLoader_load("./res/untitled.dae","Cube-mesh",&(current3dObjectP->daeData));
+    for(size_t ObjectNum=0;ObjectNum<all3dObjectsDlP->itemcnt;ObjectNum++){
+        struct eng3dObject* current3dObjectP=all3dObjectsDlP->items[ObjectNum];
         current3dObjectP->VertexBufferP=(struct engBufferHandle*)malloc(sizeof(struct engBufferHandle));
         current3dObjectP->PosNormUvInBufOffset=0;
         current3dObjectP->IdxInBufOffset=current3dObjectP->daeData.CombinedPsNrUvDlP->itemcnt*sizeof(float);
-
+        //calculate estimate of memory usage to device where to place the memory for all objects
         current3dObjectP->VertexBufferP->ContentSizeInBytes=((current3dObjectP->daeData.CombinedPsNrUvDlP->itemcnt*sizeof(float))
                                                             +(current3dObjectP->daeData.IndexingDlP->itemcnt*sizeof(uint32_t)));
-        _eng_VertexBuffer_createHandle(vkRuntimeInfoP,ObjectToBeLoaded.VertexBufferP,VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-        RoughMemoryEstimate+=ObjectToBeLoaded.VertexBufferP->MemoryRequirements.size+ObjectToBeLoaded.VertexBufferP->MemoryRequirements.alignment*16;
+        _eng_VertexBuffer_createHandle(vkRuntimeInfoP,current3dObjectP->VertexBufferP,VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        RoughMemoryEstimate+=current3dObjectP->VertexBufferP->MemoryRequirements.size+current3dObjectP->VertexBufferP->MemoryRequirements.alignment*16;
     }
 
-    //Check for unified memory
+    //Find the fastest GPU side memory, while checking for unified memory
     uint32_t resultMemoryBits;
-    uint32_t DeviceLocalMemoryType=_eng_Memory_findBestType(vkRuntimeInfoP,~(ObjectToBeLoaded.readVertexBufferP->MemoryRequirements.memoryTypeBits),
-                                                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                                                            0,
-                                                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,   //favor non host visible memory
-                                                            &(resultMemoryBits),
+    //all buffers in this memory have the same memoryType requirements, so get the memoryTypeBits from the first object's buffer
+    uint32_t supportedMemoryTypeBits=all3dObjectsDlP->items[0]->VertexBufferP->MemoryRequirements.memoryTypeBits;
+
+    uint32_t DeviceLocalMemoryType=_eng_Memory_findBestType(vkRuntimeInfoP,~supportedMemoryTypeBits,
+                                                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,0,      //force device local
+                                                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,        //downrank host visible memory
+                                                            &(resultMemoryBits),                        //to check which memory was actually asigned
                                                             RoughMemoryEstimate);
     int unifiedMemoryFlag=(resultMemoryBits&VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-
-    for(int ObjectNum=0;ObjectNum<1;ObjectNum++){
-        if(unifiedMemoryFlag){
-            ObjectToBeLoaded.writeVertexBufferP=ObjectToBeLoaded.readVertexBufferP;
-        }else{
-            ObjectToBeLoaded.writeVertexBufferP=(struct engBufferHandle*)malloc(sizeof(struct engBufferHandle));
-            ObjectToBeLoaded.writeVertexBufferP->ContentSizeInBytes=ObjectToBeLoaded.readVertexBufferP->ContentSizeInBytes;
-            _eng_VertexBuffer_createHandle(vkRuntimeInfoP,ObjectToBeLoaded.writeVertexBufferP,VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+    Dl_bufferHandle* optVtxStagingDlP=NULL;
+    VkDeviceSize MaxAlignment;
+    if(!unifiedMemoryFlag){ //non unified memory detected, we need to create a separate staging buffer on the cpu side memory
+        optVtxStagingDlP=Dl_bufferHandle_alloc(all3dObjectsDlP->itemcnt,NULL);  //allocate an buffer handle for each object's vertex buffer
+        for(size_t ObjectNum=0;ObjectNum<all3dObjectsDlP->itemcnt;ObjectNum++){
+            //copy contentSize information from GPU side buffer
+            optVtxStagingDlP->items[ObjectNum]->ContentSizeInBytes=all3dObjectsDlP->items[ObjectNum]->VertexBufferP->ContentSizeInBytes;
+            _eng_VertexBuffer_createHandle(vkRuntimeInfoP,optVtxStagingDlP->items[ObjectNum],VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
         }
+        //get maximum alignment of src and dst
+        MaxAlignment=max_uint32(all3dObjectsDlP->items[0]->VertexBufferP->MemoryRequirements.alignment,
+                                optVtxStagingDlP->items[0]->MemoryRequirements.alignment);
+    }else{
+        MaxAlignment=all3dObjectsDlP->items[0]->VertexBufferP->MemoryRequirements.alignment;
     }
-
-    //get maximum alignment required
-    VkDeviceSize MaxAlignment=max_uint32(ObjectToBeLoaded.writeVertexBufferP->MemoryRequirements.alignment,
-                                           ObjectToBeLoaded.readVertexBufferP->MemoryRequirements.alignment);
 
     //Calculate the required size and handle alignment
     VkDeviceSize TotalAllocationSize=0;
@@ -410,8 +409,8 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP,Dl_modelPat
         ObjectToBeLoaded.writeVertexBufferP->OffsetInMemoryInBytes=TotalAllocationSize;
         ObjectToBeLoaded.readVertexBufferP->OffsetInMemoryInBytes=TotalAllocationSize;
         //Account for buffer length
-        TotalAllocationSize+=max_uint32_t(ObjectToBeLoaded.writeVertexBufferP->MemoryRequirements.size,
-                                          ObjectToBeLoaded.readVertexBufferP->MemoryRequirements.size);
+        TotalAllocationSize+=max_uint32(ObjectToBeLoaded.writeVertexBufferP->MemoryRequirements.size,
+                                        ObjectToBeLoaded.readVertexBufferP->MemoryRequirements.size);
     }
 
     //Get device side memory
@@ -455,9 +454,9 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP,Dl_modelPat
         //copy combined index
         memcpy(((char*)mappedMemoryP)+ObjectToBeLoaded.IdxInBufOffset,ObjectToBeLoaded.daeData.IndexingDlP->items,ObjectToBeLoaded.daeData.IndexingDlP->itemcnt*sizeof(uint32_t));
         vkUnmapMemory(vkRuntimeInfoP->device,ObjectToBeLoaded.writeVertexBufferP->Memory);
-        DlDelete(ObjectToBeLoaded.daeData.CombinedPsNrUvDlP);
+        Dl_float_delete(ObjectToBeLoaded.daeData.CombinedPsNrUvDlP);
         ObjectToBeLoaded.vertexCount=ObjectToBeLoaded.daeData.IndexingDlP->itemcnt;
-        DlDelete(ObjectToBeLoaded.daeData.IndexingDlP);
+        Dl_int32_delete(ObjectToBeLoaded.daeData.IndexingDlP);
         //copy normal data
     }
 
@@ -519,29 +518,29 @@ void _eng_cmdBuf_endAndSubmitSingleUse(struct VulkanRuntimeInfo* vkRuntimeInfoP,
     vkFreeCommandBuffers(vkRuntimeInfoP->device,vkRuntimeInfoP->commandPool,1,&SingleUseBufferP);
 }
 
-void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct xmlTreeElement* eng_setupxmlP){
+void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,xmlTreeElement* eng_setupxmlP){
     //get required information from xml object in memory
     //engine and app name
-    struct xmlTreeElement* engNameXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"EngineName",NULL,NULL,0,0);
-    struct xmlTreeElement* engNameContentXmlElmntP=getFirstSubelementWith(engNameXmlElmntP,NULL,NULL,NULL,xmltype_chardata,0);
-    engNameContentXmlElmntP->content=Dl_utf32_StripSpaces_freeArg1(engNameContentXmlElmntP->content);
-    char* engNameCharP=Dl_utf32_toString(engNameContentXmlElmntP->content);
+    xmlTreeElement* engNameXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"EngineName",NULL,NULL,0,0);
+    xmlTreeElement* engNameContentXmlElmntP=getNthChildWithType(engNameXmlElmntP,0,xmltype_chardata);
+    Dl_utf32Char* engNameStrippedString=Dl_utf32Char_stripOuterSpaces(engNameContentXmlElmntP->nameOrContent);
+    char* engNameCharP=Dl_utf32Char_toStringAlloc_freeArg1(engNameStrippedString);
 
-    struct xmlTreeElement* appNameXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"ApplicationName",NULL,NULL,0,0);
-    struct xmlTreeElement* appNameContentXmlElmntP=getFirstSubelementWith(appNameXmlElmntP,NULL,NULL,NULL,xmltype_chardata,0);
-    appNameContentXmlElmntP->content=Dl_utf32_StripSpaces_freeArg1(appNameContentXmlElmntP->content);
-    char* appNameCharP=Dl_utf32_toString(appNameContentXmlElmntP->content);
+    xmlTreeElement* appNameXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"ApplicationName",NULL,NULL,0,0);
+    xmlTreeElement* appNameContentXmlElmntP=getNthChildWithType(appNameXmlElmntP,0,xmltype_chardata);
+    Dl_utf32Char* appNameStrippedString=Dl_utf32Char_stripOuterSpaces(appNameContentXmlElmntP->nameOrContent);
+    char* appNameCharP=Dl_utf32Char_toStringAlloc_freeArg1(appNameStrippedString);
 
     //engine and app version
-    struct xmlTreeElement* engVersionXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"EngineVersion",NULL,NULL,0,0);
-    struct xmlTreeElement* engVersionContentXmlElmntP=getFirstSubelementWith(engVersionXmlElmntP,NULL,NULL,NULL,xmltype_chardata,0);
-    engVersionContentXmlElmntP->content=Dl_utf32_StripSpaces_freeArg1(engVersionContentXmlElmntP->content);
-    uint32_t engVersion=eng_get_version_number_from_UTF32DynlistP(engVersionContentXmlElmntP->content);
+    xmlTreeElement* engVersionXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"EngineVersion",NULL,NULL,0,0);
+    xmlTreeElement* engVersionContentXmlElmntP=getNthChildWithType(engVersionXmlElmntP,0,xmltype_chardata);
+    Dl_utf32Char* engVersionStrippedString=Dl_utf32Char_stripOuterSpaces(engVersionContentXmlElmntP->nameOrContent);
+    uint32_t engVersion=eng_get_version_number_from_UTF32DynlistP(engVersionStrippedString);
 
-    struct xmlTreeElement* appVersionXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"ApplicationVersion",NULL,NULL,0,0);
-    struct xmlTreeElement* appVersionContentXmlElmntP=getFirstSubelementWith(appVersionXmlElmntP,NULL,NULL,NULL,xmltype_chardata,0);
-    appVersionContentXmlElmntP->content=Dl_utf32_StripSpaces_freeArg1(appVersionContentXmlElmntP->content);
-    uint32_t appVersion=eng_get_version_number_from_UTF32DynlistP(appVersionContentXmlElmntP->content);
+    xmlTreeElement* appVersionXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"ApplicationVersion",NULL,NULL,0,0);
+    xmlTreeElement* appVersionContentXmlElmntP=getFirstSubelementWith(appVersionXmlElmntP,NULL,NULL,NULL,xmltype_chardata,0);
+    Dl_utf32Char* appVersionStrippedString=Dl_utf32Char_stripOuterSpaces(appVersionContentXmlElmntP->nameOrContent);
+    uint32_t appVersion=eng_get_version_number_from_UTF32DynlistP(appVersionStrippedString);
 
     //Create Application Info structure
     VkApplicationInfo AppInfo;
@@ -554,10 +553,10 @@ void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct xmlTreeE
     AppInfo.engineVersion=      engVersion;
 
     //retrieve required layers and extensions for instance
-    struct xmlTreeElement* reqInstLayerXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"RequiredInstanceLayers",NULL,NULL,0,0);
-    struct DynamicList* reqInstLayerDynlistP=getAllSubelementsWithASCII(reqInstLayerXmlElmntP,"Layer",NULL,NULL,0,0);
-    struct xmlTreeElement* reqInstExtensionXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"RequiredInstanceExtensions",NULL,NULL,0,0);
-    struct DynamicList* reqInstExtensionDynlistP=getAllSubelementsWithASCII(reqInstExtensionXmlElmntP,"Extension",NULL,NULL,0,0);
+    xmlTreeElement* reqInstLayerXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"RequiredInstanceLayers",NULL,NULL,0,0);
+    Dl_xmlP* reqInstLayerDynlistP=getAllSubelementsWithASCII(reqInstLayerXmlElmntP,"Layer",NULL,NULL,0,0);
+    xmlTreeElement* reqInstExtensionXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"RequiredInstanceExtensions",NULL,NULL,0,0);
+    Dl_xmlP* reqInstExtensionDynlistP=getAllSubelementsWithASCII(reqInstExtensionXmlElmntP,"Extension",NULL,NULL,0,0);
 
     //Check layer support
     uint32_t layerCount=0;
@@ -568,11 +567,9 @@ void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct xmlTreeE
 
     for(unsigned int required_layer_idx=0;required_layer_idx<reqInstLayerDynlistP->itemcnt;required_layer_idx++){
         unsigned int available_layer_idx;
-        struct xmlTreeElement* currentLayerXmlElmntP=((struct xmlTreeElement**)(reqInstLayerDynlistP->items))[required_layer_idx];
-        struct DynamicList* reqLayerNameDynlistP=getValueFromKeyNameASCII(currentLayerXmlElmntP->attributes,"name");
-        //Dl_utf32_print(reqLayerNameDynlistP);
-        char* reqLayerNameCharP=Dl_utf32_toString(reqLayerNameDynlistP);
-        //printf("%s",reqLayerNameCharP);
+        xmlTreeElement* currentLayerXmlElmntP=reqInstLayerDynlistP->items[required_layer_idx];
+        Dl_utf32Char* reqLayerNameString=getValueFromKeyNameASCII(currentLayerXmlElmntP->attributes,"name");
+        char* reqLayerNameCharP=Dl_utf32Char_toStringAlloc(reqLayerNameString);
         uint32_t minVersion=eng_get_version_number_from_xmlemnt(currentLayerXmlElmntP);
         for(available_layer_idx=0;available_layer_idx<layerCount;available_layer_idx++){
             if(!strcmp(LayerProptertiesP[available_layer_idx].layerName,reqLayerNameCharP)){
@@ -598,10 +595,10 @@ void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct xmlTreeE
     vkEnumerateInstanceExtensionProperties(NULL,&extensionCount,NULL);
     VkExtensionProperties* ExtensionProptertiesP=(VkExtensionProperties*)malloc(extensionCount*sizeof(VkExtensionProperties));
     vkEnumerateInstanceExtensionProperties(NULL,&extensionCount,ExtensionProptertiesP);
-    for(unsigned int required_extension_idx=0;required_extension_idx<reqInstExtensionDynlistP->itemcnt;required_extension_idx++){
-        unsigned int available_extension_idx;
-        struct xmlTreeElement* currentExtensionXmlElmntP=((struct xmlTreeElement**)(reqInstExtensionDynlistP->items))[required_extension_idx];
-        char* reqExtensionNameCharP=Dl_utf32_toString(getValueFromKeyNameASCII(currentExtensionXmlElmntP->attributes,"name"));
+    for(uint32_t required_extension_idx=0;required_extension_idx<reqInstExtensionDynlistP->itemcnt;required_extension_idx++){
+        uint32_t available_extension_idx;
+        xmlTreeElement* currentExtensionXmlElmntP=reqInstExtensionDynlistP->items[required_extension_idx];
+        char* reqExtensionNameCharP=Dl_utf32Char_toStringAlloc(getValueFromKeyNameASCII(currentExtensionXmlElmntP->attributes,"name"));
         uint32_t minVersion=eng_get_version_number_from_xmlemnt(currentExtensionXmlElmntP);
         for(available_extension_idx=0;available_extension_idx<extensionCount;available_extension_idx++){
             if(!strcmp(ExtensionProptertiesP[available_extension_idx].extensionName,reqExtensionNameCharP)){
@@ -627,8 +624,8 @@ void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct xmlTreeE
     dprintf(DBGT_INFO,"Number of required instance extensions %d",vkRuntimeInfoP->InstExtensionCount);
     vkRuntimeInfoP->InstExtensionNamesPP=(char**)malloc(vkRuntimeInfoP->InstExtensionCount*sizeof(char*));
     for(uint32_t InstExtensionIdx=0;InstExtensionIdx<vkRuntimeInfoP->InstExtensionCount;InstExtensionIdx++){
-        struct xmlTreeElement* currentExtensionXmlElmntP=((struct xmlTreeElement**)(reqInstExtensionDynlistP->items))[InstExtensionIdx];
-        vkRuntimeInfoP->InstExtensionNamesPP[InstExtensionIdx]=Dl_utf32_toString(getValueFromKeyNameASCII(currentExtensionXmlElmntP->attributes,"name"));
+        xmlTreeElement* currentExtensionXmlElmntP=reqInstExtensionDynlistP->items[InstExtensionIdx];
+        vkRuntimeInfoP->InstExtensionNamesPP[InstExtensionIdx]=Dl_utf32Char_toStringAlloc(getValueFromKeyNameASCII(currentExtensionXmlElmntP->attributes,"name"));
         dprintf(DBGT_INFO,"Requesting inst extension %s",vkRuntimeInfoP->InstExtensionNamesPP[InstExtensionIdx]);
     }
 
@@ -636,8 +633,8 @@ void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct xmlTreeE
     vkRuntimeInfoP->InstLayerCount=reqInstLayerDynlistP->itemcnt;
     vkRuntimeInfoP->InstLayerNamesPP=(char**)malloc(vkRuntimeInfoP->InstLayerCount*sizeof(char*));
     for(uint32_t InstLayerIdx=0;InstLayerIdx<vkRuntimeInfoP->InstLayerCount;InstLayerIdx++){
-        struct xmlTreeElement* currentExtensionXmlElmntP=((struct xmlTreeElement**)(reqInstLayerDynlistP->items))[InstLayerIdx];
-        vkRuntimeInfoP->InstLayerNamesPP[InstLayerIdx]=Dl_utf32_toString(getValueFromKeyNameASCII(currentExtensionXmlElmntP->attributes,"name"));
+        xmlTreeElement* currentExtensionXmlElmntP=reqInstLayerDynlistP->items[InstLayerIdx];
+        vkRuntimeInfoP->InstLayerNamesPP[InstLayerIdx]=Dl_utf32Char_toStringAlloc(getValueFromKeyNameASCII(currentExtensionXmlElmntP->attributes,"name"));
         dprintf(DBGT_INFO,"Requesting inst layer %s",vkRuntimeInfoP->InstLayerNamesPP[InstLayerIdx]);
     }
 
@@ -660,11 +657,10 @@ void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct xmlTreeE
 
 uint8_t* eng_vulkan_generate_device_ranking(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct xmlTreeElement* eng_setupxmlP){
 
-    struct xmlTreeElement* reqDevLayerXmlElmntP=getFirstSubelementWith_freeArg234(eng_setupxmlP,Dl_utf32_fromString("RequiredDeviceLayers"),NULL,NULL,0,1);
-    struct DynamicList* reqDevLayerDynlistP=getAllSubelementsWith_freeArg234(reqDevLayerXmlElmntP,Dl_utf32_fromString("Layer"),NULL,NULL,0,1);
-    struct xmlTreeElement* reqDevExtensionXmlElmntP=getFirstSubelementWith_freeArg234(eng_setupxmlP,Dl_utf32_fromString("RequiredDeviceExtensions"),NULL,NULL,0,1);
-    //printXMLsubelements(reqDevExtensionXmlElmntP);
-    struct DynamicList* reqDevExtensionDynlistP=getAllSubelementsWith_freeArg234(reqDevExtensionXmlElmntP,Dl_utf32_fromString("Extension"),NULL,NULL,0,1);
+    xmlTreeElement* reqDevLayerXmlElmntP    =getFirstSubelementWithASCII(eng_setupxmlP,"RequiredDeviceLayers",NULL,NULL,xmltype_tag,1);
+    Dl_xmlP* reqDevLayerDynlistP            =getAllSubelementsWithASCII(reqDevLayerXmlElmntP,"Layer",NULL,NULL,xmltype_tag,1);
+    xmlTreeElement* reqDevExtensionXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"RequiredDeviceExtensions",NULL,NULL,xmltype_tag,1);
+    Dl_xmlP* reqDevExtensionDynlistP        =getAllSubelementsWithASCII(reqDevExtensionXmlElmntP,"Extension",NULL,NULL,xmltype_tag,1);
 
     //get all vulkan devices
     CHK_VK(vkEnumeratePhysicalDevices(vkRuntimeInfoP->instance,&vkRuntimeInfoP->physDeviceCount,NULL));
@@ -675,24 +671,24 @@ uint8_t* eng_vulkan_generate_device_ranking(struct VulkanRuntimeInfo* vkRuntimeI
     uint8_t* deviceRankingP=malloc(vkRuntimeInfoP->physDeviceCount*sizeof(uint8_t));
     memset(deviceRankingP,1,sizeof(uint8_t)*vkRuntimeInfoP->physDeviceCount);
     dprintf(DBGT_INFO,"Number of available devices %d",vkRuntimeInfoP->physDeviceCount);
-    for(uint32_t physicalDevicesIdx=0;physicalDevicesIdx<vkRuntimeInfoP->physDeviceCount;physicalDevicesIdx++){
+    for(uint32_t physDevIdx=0;physDevIdx<vkRuntimeInfoP->physDeviceCount;physDevIdx++){
         //Check device properties
         VkPhysicalDeviceProperties deviceProperties;
-        vkGetPhysicalDeviceProperties(vkRuntimeInfoP->physAvailDevicesP[physicalDevicesIdx],&deviceProperties);
+        vkGetPhysicalDeviceProperties(vkRuntimeInfoP->physAvailDevicesP[physDevIdx],&deviceProperties);
         if(deviceProperties.deviceType==VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU){
-            deviceRankingP[physicalDevicesIdx]+=1;   //discrete GPU's are prefered
+            deviceRankingP[physDevIdx]+=1;   //discrete GPU's are prefered
         }
 
         //Check layer support
         uint32_t layerCount=0;
-        CHK_VK(vkEnumerateDeviceLayerProperties(vkRuntimeInfoP->physAvailDevicesP[physicalDevicesIdx],&layerCount,NULL));
+        CHK_VK(vkEnumerateDeviceLayerProperties(vkRuntimeInfoP->physAvailDevicesP[physDevIdx],&layerCount,NULL));
         VkLayerProperties* LayerProptertiesP=(VkLayerProperties*)malloc(layerCount*sizeof(VkLayerProperties));
-        CHK_VK(vkEnumerateDeviceLayerProperties(vkRuntimeInfoP->physAvailDevicesP[physicalDevicesIdx],&layerCount,LayerProptertiesP));
+        CHK_VK(vkEnumerateDeviceLayerProperties(vkRuntimeInfoP->physAvailDevicesP[physDevIdx],&layerCount,LayerProptertiesP));
 
         for(unsigned int required_layer_idx=0;required_layer_idx<reqDevLayerDynlistP->itemcnt;required_layer_idx++){
             unsigned int available_layer_idx;
-            struct xmlTreeElement* currentLayerXmlElmntP=((struct xmlTreeElement**)(reqDevLayerDynlistP->items))[required_layer_idx];
-            char* reqLayerNameCharP=Dl_utf32_toString(getValueFromKeyName_freeArg2(currentLayerXmlElmntP->attributes,Dl_utf32_fromString("name")));
+            xmlTreeElement* currentLayerXmlElmntP=((struct xmlTreeElement**)(reqDevLayerDynlistP->items))[required_layer_idx];
+            char* reqLayerNameCharP=Dl_utf32Char_toStringAlloc(getValueFromKeyNameASCII(currentLayerXmlElmntP->attributes,"name"));
             uint32_t minVersion=eng_get_version_number_from_xmlemnt(currentLayerXmlElmntP);
             for(available_layer_idx=0;available_layer_idx<layerCount;available_layer_idx++){
                 if(!strcmp(LayerProptertiesP[available_layer_idx].layerName,reqLayerNameCharP)){
@@ -707,26 +703,26 @@ uint8_t* eng_vulkan_generate_device_ranking(struct VulkanRuntimeInfo* vkRuntimeI
             free(reqLayerNameCharP);
             if(available_layer_idx==layerCount){ //layer was not found
                 free(LayerProptertiesP);
-                deviceRankingP[physicalDevicesIdx]=0;
+                deviceRankingP[physDevIdx]=0;
                 break;
             }
         }
         free(LayerProptertiesP);
-        if(!deviceRankingP[physicalDevicesIdx]){
+        if(!deviceRankingP[physDevIdx]){
             dprintf(DBGT_INFO,"Device missing support for at least one layer");
             continue;
         }
 
         //Check extension support
         uint32_t extensionCount=0;
-        CHK_VK(vkEnumerateDeviceExtensionProperties(vkRuntimeInfoP->physAvailDevicesP[physicalDevicesIdx],NULL,&extensionCount,NULL));
+        CHK_VK(vkEnumerateDeviceExtensionProperties(vkRuntimeInfoP->physAvailDevicesP[physDevIdx],NULL,&extensionCount,NULL));
         VkExtensionProperties* ExtensionProptertiesP=(VkExtensionProperties*)malloc(extensionCount*sizeof(VkExtensionProperties));
-        CHK_VK(vkEnumerateDeviceExtensionProperties(vkRuntimeInfoP->physAvailDevicesP[physicalDevicesIdx],NULL,&extensionCount,ExtensionProptertiesP));
+        CHK_VK(vkEnumerateDeviceExtensionProperties(vkRuntimeInfoP->physAvailDevicesP[physDevIdx],NULL,&extensionCount,ExtensionProptertiesP));
 
         for(unsigned int required_extension_idx=0;required_extension_idx<reqDevExtensionDynlistP->itemcnt;required_extension_idx++){
             unsigned int available_extension_idx;
-            struct xmlTreeElement* currentExtensionXmlElmntP=((struct xmlTreeElement**)(reqDevExtensionDynlistP->items))[required_extension_idx];
-            char* reqExtensionNameCharP=Dl_utf32_toString(getValueFromKeyName_freeArg2(currentExtensionXmlElmntP->attributes,Dl_utf32_fromString("name")));
+            xmlTreeElement* currentExtensionXmlElmntP=reqDevExtensionDynlistP->items[required_extension_idx];
+            char* reqExtensionNameCharP=Dl_utf32Char_toStringAlloc(getValueFromKeyNameASCII(currentExtensionXmlElmntP->attributes,"name"));
             uint32_t minVersion=eng_get_version_number_from_xmlemnt(currentExtensionXmlElmntP);
             for(available_extension_idx=0;available_extension_idx<extensionCount;available_extension_idx++){
                 if(!strcmp(ExtensionProptertiesP[available_extension_idx].extensionName,reqExtensionNameCharP)){
@@ -740,7 +736,7 @@ uint8_t* eng_vulkan_generate_device_ranking(struct VulkanRuntimeInfo* vkRuntimeI
             }
 
             if(available_extension_idx==extensionCount){ //extension was not found
-                deviceRankingP[physicalDevicesIdx]=0;
+                deviceRankingP[physDevIdx]=0;
                 dprintf(DBGT_INFO,"Device missing support for extension %s",reqExtensionNameCharP);
                 free(reqExtensionNameCharP);
                 break;
@@ -748,17 +744,17 @@ uint8_t* eng_vulkan_generate_device_ranking(struct VulkanRuntimeInfo* vkRuntimeI
             free(reqExtensionNameCharP);
         }
         free(ExtensionProptertiesP);
-        if(!deviceRankingP[physicalDevicesIdx]){
+        if(!deviceRankingP[physDevIdx]){
             dprintf(DBGT_INFO,"Device missing support for at least one extension");
             continue;
         }
 
         //Check supported Queues
         uint32_t queueFamilyCount = 0;
-        vkGetPhysicalDeviceQueueFamilyProperties(vkRuntimeInfoP->physAvailDevicesP[physicalDevicesIdx],&queueFamilyCount,NULL);
+        vkGetPhysicalDeviceQueueFamilyProperties(vkRuntimeInfoP->physAvailDevicesP[physDevIdx],&queueFamilyCount,NULL);
         dprintf(DBGT_INFO,"Found %d queueFamilys",queueFamilyCount);
         VkQueueFamilyProperties* queueFamiliyPropP=(VkQueueFamilyProperties*)malloc(queueFamilyCount*sizeof(VkQueueFamilyProperties));
-        vkGetPhysicalDeviceQueueFamilyProperties(vkRuntimeInfoP->physAvailDevicesP[physicalDevicesIdx],&queueFamilyCount,queueFamiliyPropP);
+        vkGetPhysicalDeviceQueueFamilyProperties(vkRuntimeInfoP->physAvailDevicesP[physDevIdx],&queueFamilyCount,queueFamiliyPropP);
         uint32_t queueFamilyIdx;
         for(queueFamilyIdx=0;queueFamilyIdx<queueFamilyCount;queueFamilyIdx++){
             dprintf(DBGT_INFO,"Found Queue with Count %d\n Properties:\nGRAP\t COMP\t TRANS\t SPARSE\t PROT\n%d \t %d \t %d\t %d\t %d",
@@ -769,13 +765,13 @@ uint8_t* eng_vulkan_generate_device_ranking(struct VulkanRuntimeInfo* vkRuntimeI
                     (queueFamiliyPropP[queueFamilyIdx].queueFlags&VK_QUEUE_SPARSE_BINDING_BIT   )/VK_QUEUE_SPARSE_BINDING_BIT,
                     (queueFamiliyPropP[queueFamilyIdx].queueFlags&VK_QUEUE_PROTECTED_BIT        )/VK_QUEUE_PROTECTED_BIT
             );
-            if(queueFamiliyPropP[queueFamilyIdx].queueFlags&(VK_QUEUE_GRAPHICS_BIT)&&glfwGetPhysicalDevicePresentationSupport(vkRuntimeInfoP->instance,vkRuntimeInfoP->physAvailDevicesP[physicalDevicesIdx],queueFamilyIdx)){
+            if(queueFamiliyPropP[queueFamilyIdx].queueFlags&(VK_QUEUE_GRAPHICS_BIT)&&glfwGetPhysicalDevicePresentationSupport(vkRuntimeInfoP->instance,vkRuntimeInfoP->physAvailDevicesP[physDevIdx],queueFamilyIdx)){
                 break;
             }
         }
         free(queueFamiliyPropP);
         if(queueFamilyIdx==queueFamilyCount){
-            deviceRankingP[physicalDevicesIdx]=0;
+            deviceRankingP[physDevIdx]=0;
             dprintf(DBGT_ERROR,"This GPU does not support a Graphics Queue or is missing presentation support.");
             break;
         }
@@ -786,18 +782,19 @@ uint8_t* eng_vulkan_generate_device_ranking(struct VulkanRuntimeInfo* vkRuntimeI
     dprintf(DBGT_INFO,"count: %d",vkRuntimeInfoP->DevExtensionCount);
     vkRuntimeInfoP->DevExtensionNamesPP=(char**)malloc(vkRuntimeInfoP->DevExtensionCount*sizeof(char*));
     for(uint32_t DevExtensionIdx=0;DevExtensionIdx<vkRuntimeInfoP->DevExtensionCount;DevExtensionIdx++){
-        struct xmlTreeElement* currentExtensionXmlElmntP=((struct xmlTreeElement**)(reqDevExtensionDynlistP->items))[DevExtensionIdx];
+        xmlTreeElement* currentExtensionXmlElmntP=reqDevExtensionDynlistP->items[DevExtensionIdx];
         //printXMLsubelements(currentExtensionXmlElmntP);
-        struct DynamicList* extensionNameTempP=getValueFromKeyName_freeArg2(currentExtensionXmlElmntP->attributes,Dl_utf32_fromString("name"));
-        vkRuntimeInfoP->DevExtensionNamesPP[DevExtensionIdx]=Dl_utf32_toString(extensionNameTempP);
+        Dl_utf32Char* extensionNameString=getValueFromKeyNameASCII(currentExtensionXmlElmntP->attributes,"name");
+        vkRuntimeInfoP->DevExtensionNamesPP[DevExtensionIdx]=Dl_utf32Char_toStringAlloc(extensionNameString);
     }
 
     //generate DevLayerNames and Count
     vkRuntimeInfoP->DevLayerCount=reqDevLayerDynlistP->itemcnt;
     vkRuntimeInfoP->DevLayerNamesPP=(char**)malloc(vkRuntimeInfoP->DevLayerCount*sizeof(char*));
     for(uint32_t DevLayerIdx=0;DevLayerIdx<vkRuntimeInfoP->DevLayerCount;DevLayerIdx++){
-        struct xmlTreeElement* currentExtensionXmlElmntP=((struct xmlTreeElement**)(reqDevLayerDynlistP->items))[DevLayerIdx];
-        vkRuntimeInfoP->DevLayerNamesPP[DevLayerIdx]=Dl_utf32_toString(getValueFromKeyName_freeArg2(currentExtensionXmlElmntP->attributes,Dl_utf32_fromString("name")));
+        xmlTreeElement* currentExtensionXmlElmntP=reqDevLayerDynlistP->items[DevLayerIdx];
+        Dl_utf32Char* layerNameString=getValueFromKeyNameASCII(currentExtensionXmlElmntP->attributes,"name");
+        vkRuntimeInfoP->DevLayerNamesPP[DevLayerIdx]=Dl_utf32Char_toStringAlloc(layerNameString);
     }
 
     return deviceRankingP;
@@ -881,43 +878,41 @@ void eng_createCommandPool(struct VulkanRuntimeInfo* vkRuntimeInfoP){
 
 struct xmlTreeElement* eng_get_eng_setupxml(char* FilePath,int debug_enabled){
     FILE* engSetupFileP=fopen(FilePath,"rb");
-    struct xmlTreeElement* engSetupRootP=0;
+    xmlTreeElement* engSetupRootP=0;
     readXML(engSetupFileP,&engSetupRootP);
     fclose(engSetupFileP);
     //select release or debug
-    struct xmlTreeElement* engSetupDebOrRelP;
-    struct DynamicList* tempXmlDynlistP;
+    xmlTreeElement* engSetupDebOrRelP;
+    Dl_xmlP* tempXmlDlP;
     if(debug_enabled){
-        tempXmlDynlistP=getAllSubelementsWith_freeArg234(engSetupRootP,Dl_utf32_fromString("Debug"),NULL,NULL,0,1);
+        tempXmlDlP=getAllSubelementsWithASCII(engSetupRootP,"Debug",NULL,NULL,0,1);
     }else{
-        tempXmlDynlistP=getAllSubelementsWith_freeArg234(engSetupRootP,Dl_utf32_fromString("Release"),NULL,NULL,0,1);
+        tempXmlDlP=getAllSubelementsWithASCII(engSetupRootP,"Release",NULL,NULL,0,1);
     }
-    if(tempXmlDynlistP->itemcnt!=1){
+    if(tempXmlDlP->itemcnt!=1){
         dprintf(DBGT_ERROR,"Invalid EngSetupFile format");
         exit(1);
     }
-    engSetupDebOrRelP=((struct xmlTreeElement**)(tempXmlDynlistP->items))[0];
+    engSetupDebOrRelP=tempXmlDlP->items[0];
     //printXMLsubelements(engSetupDebOrRelP);
-    DlDelete(tempXmlDynlistP);
+    Dl_xmlP_delete(tempXmlDlP);
     return engSetupDebOrRelP;
 };
 
-uint32_t eng_get_version_number_from_UTF32DynlistP(struct DynamicList* inputStringP){
-    struct DynamicList* versionNumP=Dl_utf32_to_Dl_int64_freeArg1(Dl_CMatch_create(2,'.','.'),inputStringP);
-    if(versionNumP->itemcnt!=3){
+uint32_t eng_get_version_number_from_UTF32DynlistP(Dl_utf32Char* inputStringP){
+    Dl_int64* versionNumDlP=Dl_utf32Char_to_int64(Dl_CM_initFromList('.','.'),inputStringP);
+    if(versionNumDlP->itemcnt!=3){
         dprintf(DBGT_ERROR,"Invalid Version format");
         exit(1);
     }
-    uint64_t* versionIntsP=(uint64_t*)(versionNumP->items);
-    uint32_t version=VK_MAKE_VERSION(versionIntsP[0],versionIntsP[1],versionIntsP[2]);
-    free(versionNumP);
+    uint32_t version=VK_MAKE_VERSION(versionNumDlP->items[0],versionNumDlP->items[1],versionNumDlP->items[2]);
+    Dl_int64_delete(versionNumDlP);
     return version;
 }
 
-uint32_t eng_get_version_number_from_xmlemnt(struct xmlTreeElement* currentReqXmlP){
-    struct DynamicList* currentReqLayerAttribP=(currentReqXmlP->attributes);
-    struct DynamicList* minversionUTF32DynlistP=getValueFromKeyNameASCII(currentReqLayerAttribP,"minversion");
-    if(!minversionUTF32DynlistP){
+uint32_t eng_get_version_number_from_xmlemnt(xmlTreeElement* currentReqXmlP){
+    Dl_utf32Char* minversionString=getValueFromKeyNameASCII(currentReqXmlP->attributes,"minversion");
+    if(!minversionString){
         return 0;
     }
     return eng_get_version_number_from_UTF32DynlistP(minversionUTF32DynlistP);
@@ -983,8 +978,8 @@ void eng_createSwapChain(struct VulkanRuntimeInfo* vkRuntimeInfoP,GLFWwindow* gl
     int32_t glfw_height;
     int32_t glfw_width;
     glfwGetFramebufferSize(glfwWindowP,&glfw_height,&glfw_width);
-    (vkRuntimeInfoP->swapChainImageExtent).height=clamp_uint32_t(surfaceCapabilities.minImageExtent.height,(uint32_t)glfw_height,surfaceCapabilities.maxImageExtent.height);
-    (vkRuntimeInfoP->swapChainImageExtent).width=clamp_uint32_t(surfaceCapabilities.minImageExtent.width,(uint32_t)glfw_width,surfaceCapabilities.maxImageExtent.width);
+    (vkRuntimeInfoP->swapChainImageExtent).height=clamp_uint32(surfaceCapabilities.minImageExtent.height,(uint32_t)glfw_height,surfaceCapabilities.maxImageExtent.height);
+    (vkRuntimeInfoP->swapChainImageExtent).width=clamp_uint32(surfaceCapabilities.minImageExtent.width,(uint32_t)glfw_width,surfaceCapabilities.maxImageExtent.width);
 
     VkSwapchainCreateInfoKHR swapchainCreateInfo;
     swapchainCreateInfo.sType=VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -1462,7 +1457,7 @@ int main(int argc, char** argv){
         struct xmlTreeElement* eng_setupxmlP=eng_get_eng_setupxml("./res/vk_setup.xml",0);
     #endif
     struct xmlTreeElement* applicationNameXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"ApplicationName",NULL,NULL,0,1);
-    char* applicationNameCharP=Dl_utf32_toString(getFirstSubelementWith(applicationNameXmlElmntP,NULL,NULL,NULL,xmltype_chardata,0)->content);
+    char* applicationNameCharP=Dl_utf32Char_toStringAlloc(getNthChildWithType(applicationNameXmlElmntP,0,xmltype_chardata)->nameOrContent);
     GLFWwindow* mainWindowP = glfwCreateWindow(1920, 1080, applicationNameCharP, NULL, NULL);
     free(applicationNameCharP);
 
