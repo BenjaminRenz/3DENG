@@ -37,6 +37,7 @@
 			<Add option="-Wextra" />
 			<Add option="-Wall" />
 			<Add option="-fmax-errors=200" />
+			<Add option="-Wno-unused-function" />
 			<Add directory="submodules" />
 			<Add directory="C:/VulkanSDK/1.2.162.0/Include/" />
 		</Compiler>

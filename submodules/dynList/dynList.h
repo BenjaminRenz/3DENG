@@ -27,12 +27,16 @@ static void Dl_##name##_resize(Dl_##name* ToResizeDlP,size_t NewNumOfElements){ 
         dprintf(DBGT_ERROR,"Dynlist to resize was a nullptr");                                              \
         exit(1);                                                                                            \
     }                                                                                                       \
+    if(!(ToResizeDlP->items)){                                                                              \
+        dprintf(DBGT_ERROR,"Dynlist items was a nullptr");                                                  \
+        exit(1);                                                                                            \
+    }                                                                                                       \
     ToResizeDlP->items=(c_type*)realloc(ToResizeDlP->items,sizeof(c_type)*NewNumOfElements);                \
     ToResizeDlP->itemcnt=NewNumOfElements;                                                                  \
 };                                                                                                          \
 static void Dl_##name##_append(Dl_##name* ToAppendDlP,size_t NumOfAdditionalElements, c_type* InitP){       \
     size_t oldItemcnt=ToAppendDlP->itemcnt;                                                                 \
-    Dl_##name##_resize(ToAppendDlP,NumOfAdditionalElements);                                                \
+    Dl_##name##_resize(ToAppendDlP,oldItemcnt+NumOfAdditionalElements);                                                \
     if(InitP){                                                                                              \
         memcpy(&(ToAppendDlP->items[oldItemcnt]),InitP,sizeof(c_type)*NumOfAdditionalElements);             \
     }                                                                                                       \
@@ -72,7 +76,7 @@ static Dl_##name* Dl_##name##_subList(Dl_##name* CompleteDlP,int32_t startIdx,in
 
 #define DlTypedef_nested(name,c_type,childname)                                                             \
 DlTypedef_generic(name,c_type)                                                                              \
-void Dl_##name##_delete(Dl_##name* ToDeleteDlP){                                                            \
+static void Dl_##name##_delete(Dl_##name* ToDeleteDlP){                                                     \
     for(size_t subitem=0;subitem<ToDeleteDlP->itemcnt;subitem++){                                           \
         Dl_##childname##_delete(ToDeleteDlP->items[subitem]);                                               \
     }                                                                                                       \
@@ -82,24 +86,24 @@ void Dl_##name##_delete(Dl_##name* ToDeleteDlP){                                
 
 #define DlTypedef_plain(name,c_type)                                                                        \
 DlTypedef_generic(name,c_type)                                                                              \
-void Dl_##name##_delete(Dl_##name* ToDeleteDlP){                                                            \
+static void Dl_##name##_delete(Dl_##name* ToDeleteDlP){                                                     \
     free(ToDeleteDlP->items);                                                                               \
     free(ToDeleteDlP);                                                                                      \
 }
 
 #define DlTypedef_compareFunc(name,c_type)                                                                  \
-int Dl_##name##_equal(Dl_##name* FirstDlP,Dl_##name* SecondDlP){                                            \
+static int Dl_##name##_equal(Dl_##name* FirstDlP,Dl_##name* SecondDlP){                                     \
     if(FirstDlP->itemcnt!=SecondDlP->itemcnt){                                                              \
         return 0;                                                                                           \
     }                                                                                                       \
     for(size_t idx=0;idx<FirstDlP->itemcnt;idx++){                                                          \
-        if(FirstDlP->items[idx]!=FirstDlP->items[idx]){                                                     \
+        if(FirstDlP->items[idx]!=SecondDlP->items[idx]){                                                    \
             return 0;                                                                                       \
         }                                                                                                   \
     }                                                                                                       \
     return 1;                                                                                               \
 }                                                                                                           \
-int Dl_##name##_equal_freeArg2(Dl_##name* FirstDlP,Dl_##name* SecondDlP){                                   \
+static int Dl_##name##_equal_freeArg2(Dl_##name* FirstDlP,Dl_##name* SecondDlP){                            \
     int result=Dl_##name##_equal(FirstDlP,SecondDlP);                                                       \
     Dl_##name##_delete(SecondDlP);                                                                          \
     return result;                                                                                          \

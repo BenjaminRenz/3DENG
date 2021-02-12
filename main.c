@@ -560,23 +560,23 @@ void _eng_cmdBuf_endAndSubmitSingleUse(struct VulkanRuntimeInfo* vkRuntimeInfoP,
 void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,xmlTreeElement* eng_setupxmlP){
     //get required information from xml object in memory
     //engine and app name
-    xmlTreeElement* engNameXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"EngineName",NULL,NULL,0,0);
+    xmlTreeElement* engNameXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"EngineName",NULL,NULL,xmltype_tag,0);
     xmlTreeElement* engNameContentXmlElmntP=getNthChildWithType(engNameXmlElmntP,0,xmltype_chardata);
     Dl_utf32Char* engNameStrippedString=Dl_utf32Char_stripOuterSpaces(engNameContentXmlElmntP->charData);
     char* engNameCharP=Dl_utf32Char_toStringAlloc_freeArg1(engNameStrippedString);
 
-    xmlTreeElement* appNameXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"ApplicationName",NULL,NULL,0,0);
+    xmlTreeElement* appNameXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"ApplicationName",NULL,NULL,xmltype_tag,0);
     xmlTreeElement* appNameContentXmlElmntP=getNthChildWithType(appNameXmlElmntP,0,xmltype_chardata);
     Dl_utf32Char* appNameStrippedString=Dl_utf32Char_stripOuterSpaces(appNameContentXmlElmntP->charData);
     char* appNameCharP=Dl_utf32Char_toStringAlloc_freeArg1(appNameStrippedString);
 
     //engine and app version
-    xmlTreeElement* engVersionXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"EngineVersion",NULL,NULL,0,0);
+    xmlTreeElement* engVersionXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"EngineVersion",NULL,NULL,xmltype_tag,0);
     xmlTreeElement* engVersionContentXmlElmntP=getNthChildWithType(engVersionXmlElmntP,0,xmltype_chardata);
     Dl_utf32Char* engVersionStrippedString=Dl_utf32Char_stripOuterSpaces(engVersionContentXmlElmntP->charData);
     uint32_t engVersion=eng_get_version_number_from_UTF32DynlistP(engVersionStrippedString);
 
-    xmlTreeElement* appVersionXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"ApplicationVersion",NULL,NULL,0,0);
+    xmlTreeElement* appVersionXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"ApplicationVersion",NULL,NULL,xmltype_tag,0);
     xmlTreeElement* appVersionContentXmlElmntP=getFirstSubelementWith(appVersionXmlElmntP,NULL,NULL,NULL,xmltype_chardata,0);
     Dl_utf32Char* appVersionStrippedString=Dl_utf32Char_stripOuterSpaces(appVersionContentXmlElmntP->charData);
     uint32_t appVersion=eng_get_version_number_from_UTF32DynlistP(appVersionStrippedString);
@@ -592,10 +592,10 @@ void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,xmlTreeElement*
     AppInfo.engineVersion=      engVersion;
 
     //retrieve required layers and extensions for instance
-    xmlTreeElement* reqInstLayerXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"RequiredInstanceLayers",NULL,NULL,0,0);
-    Dl_xmlP* reqInstLayerDynlistP=getAllSubelementsWithASCII(reqInstLayerXmlElmntP,"Layer",NULL,NULL,0,0);
-    xmlTreeElement* reqInstExtensionXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"RequiredInstanceExtensions",NULL,NULL,0,0);
-    Dl_xmlP* reqInstExtensionDynlistP=getAllSubelementsWithASCII(reqInstExtensionXmlElmntP,"Extension",NULL,NULL,0,0);
+    xmlTreeElement* reqInstLayerXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"RequiredInstanceLayers",NULL,NULL,xmltype_tag,0);
+    Dl_xmlP* reqInstLayerDynlistP=getAllSubelementsWithASCII(reqInstLayerXmlElmntP,"Layer",NULL,NULL,xmltype_tag,0);
+    xmlTreeElement* reqInstExtensionXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"RequiredInstanceExtensions",NULL,NULL,xmltype_tag,0);
+    Dl_xmlP* reqInstExtensionDynlistP=getAllSubelementsWithASCII(reqInstExtensionXmlElmntP,"Extension",NULL,NULL,xmltype_tag,0);
 
     //Check layer support
     uint32_t layerCount=0;
@@ -924,9 +924,9 @@ struct xmlTreeElement* eng_get_eng_setupxml(char* FilePath,int debug_enabled){
     xmlTreeElement* engSetupDebOrRelP;
     Dl_xmlP* tempXmlDlP;
     if(debug_enabled){
-        tempXmlDlP=getAllSubelementsWithASCII(engSetupRootP,"Debug",NULL,NULL,0,1);
+        tempXmlDlP=getAllSubelementsWithASCII(engSetupRootP,"Debug",NULL,NULL,xmltype_tag,1);
     }else{
-        tempXmlDlP=getAllSubelementsWithASCII(engSetupRootP,"Release",NULL,NULL,0,1);
+        tempXmlDlP=getAllSubelementsWithASCII(engSetupRootP,"Release",NULL,NULL,xmltype_tag,1);
     }
     if(tempXmlDlP->itemcnt!=1){
         dprintf(DBGT_ERROR,"Invalid EngSetupFile format");
@@ -1498,7 +1498,8 @@ int main(int argc, char** argv){
     #else
         struct xmlTreeElement* eng_setupxmlP=eng_get_eng_setupxml("./res/vk_setup.xml",0);
     #endif
-    struct xmlTreeElement* applicationNameXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"ApplicationName",NULL,NULL,0,1);
+    printXMLsubelements(eng_setupxmlP);
+    xmlTreeElement* applicationNameXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"ApplicationName",NULL,NULL,xmltype_tag,1);
     char* applicationNameCharP=Dl_utf32Char_toStringAlloc(getNthChildWithType(applicationNameXmlElmntP,0,xmltype_chardata)->charData);
     GLFWwindow* mainWindowP = glfwCreateWindow(1920, 1080, applicationNameCharP, NULL, NULL);
     free(applicationNameCharP);
