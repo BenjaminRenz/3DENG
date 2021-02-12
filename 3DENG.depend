@@ -1,5 +1,5 @@
 # depslib dependency file v1.0
-1613145712 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
+1613151077 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
 	<stdio.h>
 	<stdlib.h>
 	<string.h>

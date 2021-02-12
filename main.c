@@ -81,7 +81,7 @@ struct eng3dObject{
 DlTypedef_plain(eng3dObj,struct eng3dObject);
 DlTypedef_plain(bufferHandle,struct engBufferHandle)
 
-struct _engExtensionsAndLayers{
+struct engExtensionsAndLayers{
     uint32_t    InstExtensionCount;
     char**      InstExtensionNamesPP;
     uint32_t    InstLayerCount;
@@ -101,7 +101,7 @@ struct VulkanRuntimeInfo{
     VkPhysicalDevice physSelectedDevice;
 
     VkInstance instance;
-    struct _engExtensionsAndLayers;
+    struct engExtensionsAndLayers _engExtAndLayers;
 
     uint32_t graphics_queue_family_idx;
     VkQueue  graphics_queue;
@@ -659,22 +659,24 @@ void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,xmlTreeElement*
     free(ExtensionProptertiesP);
 
     //generate InstExtensionNames and Count
-    vkRuntimeInfoP->InstExtensionCount=reqInstExtensionDynlistP->itemcnt;
-    dprintf(DBGT_INFO,"Number of required instance extensions %d",vkRuntimeInfoP->InstExtensionCount);
-    vkRuntimeInfoP->InstExtensionNamesPP=(char**)malloc(vkRuntimeInfoP->InstExtensionCount*sizeof(char*));
-    for(uint32_t InstExtensionIdx=0;InstExtensionIdx<vkRuntimeInfoP->InstExtensionCount;InstExtensionIdx++){
+
+    //vkRuntimeInfoP->InstExtensionCount=reqInstExtensionDynlistP->itemcnt;
+    vkRuntimeInfoP->_engExtAndLayers.InstExtensionCount=reqInstExtensionDynlistP->itemcnt;
+    dprintf(DBGT_INFO,"Number of required instance extensions %d",vkRuntimeInfoP->_engExtAndLayers.InstExtensionCount);
+    vkRuntimeInfoP->_engExtAndLayers.InstExtensionNamesPP=(char**)malloc(vkRuntimeInfoP->_engExtAndLayers.InstExtensionCount*sizeof(char*));
+    for(uint32_t InstExtensionIdx=0;InstExtensionIdx<vkRuntimeInfoP->_engExtAndLayers.InstExtensionCount;InstExtensionIdx++){
         xmlTreeElement* currentExtensionXmlElmntP=reqInstExtensionDynlistP->items[InstExtensionIdx];
-        vkRuntimeInfoP->InstExtensionNamesPP[InstExtensionIdx]=Dl_utf32Char_toStringAlloc(getValueFromKeyNameASCII(currentExtensionXmlElmntP->attributes,"name"));
-        dprintf(DBGT_INFO,"Requesting inst extension %s",vkRuntimeInfoP->InstExtensionNamesPP[InstExtensionIdx]);
+        vkRuntimeInfoP->_engExtAndLayers.InstExtensionNamesPP[InstExtensionIdx]=Dl_utf32Char_toStringAlloc(getValueFromKeyNameASCII(currentExtensionXmlElmntP->attributes,"name"));
+        dprintf(DBGT_INFO,"Requesting inst extension %s",vkRuntimeInfoP->_engExtAndLayers.InstExtensionNamesPP[InstExtensionIdx]);
     }
 
     //generate InstLayerNames and Count
-    vkRuntimeInfoP->InstLayerCount=reqInstLayerDynlistP->itemcnt;
-    vkRuntimeInfoP->InstLayerNamesPP=(char**)malloc(vkRuntimeInfoP->InstLayerCount*sizeof(char*));
-    for(uint32_t InstLayerIdx=0;InstLayerIdx<vkRuntimeInfoP->InstLayerCount;InstLayerIdx++){
+    vkRuntimeInfoP->_engExtAndLayers.InstLayerCount=reqInstLayerDynlistP->itemcnt;
+    vkRuntimeInfoP->_engExtAndLayers.InstLayerNamesPP=(char**)malloc(vkRuntimeInfoP->_engExtAndLayers.InstLayerCount*sizeof(char*));
+    for(uint32_t InstLayerIdx=0;InstLayerIdx<vkRuntimeInfoP->_engExtAndLayers.InstLayerCount;InstLayerIdx++){
         xmlTreeElement* currentExtensionXmlElmntP=reqInstLayerDynlistP->items[InstLayerIdx];
-        vkRuntimeInfoP->InstLayerNamesPP[InstLayerIdx]=Dl_utf32Char_toStringAlloc(getValueFromKeyNameASCII(currentExtensionXmlElmntP->attributes,"name"));
-        dprintf(DBGT_INFO,"Requesting inst layer %s",vkRuntimeInfoP->InstLayerNamesPP[InstLayerIdx]);
+        vkRuntimeInfoP->_engExtAndLayers.InstLayerNamesPP[InstLayerIdx]=Dl_utf32Char_toStringAlloc(getValueFromKeyNameASCII(currentExtensionXmlElmntP->attributes,"name"));
+        dprintf(DBGT_INFO,"Requesting inst layer %s",vkRuntimeInfoP->_engExtAndLayers.InstLayerNamesPP[InstLayerIdx]);
     }
 
     uint32_t count;
@@ -688,8 +690,8 @@ void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,xmlTreeElement*
     CreateInfo.flags=                   0;
     CreateInfo.enabledExtensionCount=   count;//vkRuntimeInfoP->InstExtensionCount;
     CreateInfo.ppEnabledExtensionNames= extensionsInstancePP;//vkRuntimeInfoP->InstExtensionNames;
-    CreateInfo.enabledLayerCount=       vkRuntimeInfoP->InstLayerCount;
-    CreateInfo.ppEnabledLayerNames=     (const char* const*)vkRuntimeInfoP->InstLayerNamesPP;
+    CreateInfo.enabledLayerCount=       vkRuntimeInfoP->_engExtAndLayers.InstLayerCount;
+    CreateInfo.ppEnabledLayerNames=     (const char* const*)vkRuntimeInfoP->_engExtAndLayers.InstLayerNamesPP;
 
     CHK_VK(vkCreateInstance(&CreateInfo,NULL,&(vkRuntimeInfoP->instance)));
 }
@@ -817,23 +819,23 @@ uint8_t* eng_vulkan_generate_device_ranking(struct VulkanRuntimeInfo* vkRuntimeI
     }
 
     //generate DevExtensionNames and Count
-    vkRuntimeInfoP->DevExtensionCount=reqDevExtensionDynlistP->itemcnt;
-    dprintf(DBGT_INFO,"count: %d",vkRuntimeInfoP->DevExtensionCount);
-    vkRuntimeInfoP->DevExtensionNamesPP=(char**)malloc(vkRuntimeInfoP->DevExtensionCount*sizeof(char*));
-    for(uint32_t DevExtensionIdx=0;DevExtensionIdx<vkRuntimeInfoP->DevExtensionCount;DevExtensionIdx++){
+    vkRuntimeInfoP->_engExtAndLayers.DevExtensionCount=reqDevExtensionDynlistP->itemcnt;
+    dprintf(DBGT_INFO,"count: %d",vkRuntimeInfoP->_engExtAndLayers.DevExtensionCount);
+    vkRuntimeInfoP->_engExtAndLayers.DevExtensionNamesPP=(char**)malloc(vkRuntimeInfoP->_engExtAndLayers.DevExtensionCount*sizeof(char*));
+    for(uint32_t DevExtensionIdx=0;DevExtensionIdx<vkRuntimeInfoP->_engExtAndLayers.DevExtensionCount;DevExtensionIdx++){
         xmlTreeElement* currentExtensionXmlElmntP=reqDevExtensionDynlistP->items[DevExtensionIdx];
         //printXMLsubelements(currentExtensionXmlElmntP);
         Dl_utf32Char* extensionNameString=getValueFromKeyNameASCII(currentExtensionXmlElmntP->attributes,"name");
-        vkRuntimeInfoP->DevExtensionNamesPP[DevExtensionIdx]=Dl_utf32Char_toStringAlloc(extensionNameString);
+        vkRuntimeInfoP->_engExtAndLayers.DevExtensionNamesPP[DevExtensionIdx]=Dl_utf32Char_toStringAlloc(extensionNameString);
     }
 
     //generate DevLayerNames and Count
-    vkRuntimeInfoP->DevLayerCount=reqDevLayerDynlistP->itemcnt;
-    vkRuntimeInfoP->DevLayerNamesPP=(char**)malloc(vkRuntimeInfoP->DevLayerCount*sizeof(char*));
-    for(uint32_t DevLayerIdx=0;DevLayerIdx<vkRuntimeInfoP->DevLayerCount;DevLayerIdx++){
+    vkRuntimeInfoP->_engExtAndLayers.DevLayerCount=reqDevLayerDynlistP->itemcnt;
+    vkRuntimeInfoP->_engExtAndLayers.DevLayerNamesPP=(char**)malloc(vkRuntimeInfoP->_engExtAndLayers.DevLayerCount*sizeof(char*));
+    for(uint32_t DevLayerIdx=0;DevLayerIdx<vkRuntimeInfoP->_engExtAndLayers.DevLayerCount;DevLayerIdx++){
         xmlTreeElement* currentExtensionXmlElmntP=reqDevLayerDynlistP->items[DevLayerIdx];
         Dl_utf32Char* layerNameString=getValueFromKeyNameASCII(currentExtensionXmlElmntP->attributes,"name");
-        vkRuntimeInfoP->DevLayerNamesPP[DevLayerIdx]=Dl_utf32Char_toStringAlloc(layerNameString);
+        vkRuntimeInfoP->_engExtAndLayers.DevLayerNamesPP[DevLayerIdx]=Dl_utf32Char_toStringAlloc(layerNameString);
     }
 
     return deviceRankingP;
@@ -896,10 +898,10 @@ void eng_createDevice(struct VulkanRuntimeInfo* vkRuntimeInfoP,uint8_t* deviceRa
     DevCreateInfo.pQueueCreateInfos=        &QueueCreateInfo;
     DevCreateInfo.queueCreateInfoCount=     1;
     DevCreateInfo.pNext=                    NULL;
-    DevCreateInfo.enabledExtensionCount=    vkRuntimeInfoP->DevExtensionCount;
-    DevCreateInfo.ppEnabledExtensionNames=  (const char* const*)vkRuntimeInfoP->DevExtensionNamesPP;
-    DevCreateInfo.enabledLayerCount=        vkRuntimeInfoP->DevLayerCount;
-    DevCreateInfo.ppEnabledLayerNames=      (const char* const*)vkRuntimeInfoP->DevLayerNamesPP;
+    DevCreateInfo.enabledExtensionCount=    vkRuntimeInfoP->_engExtAndLayers.DevExtensionCount;
+    DevCreateInfo.ppEnabledExtensionNames=  (const char* const*)vkRuntimeInfoP->_engExtAndLayers.DevExtensionNamesPP;
+    DevCreateInfo.enabledLayerCount=        vkRuntimeInfoP->_engExtAndLayers.DevLayerCount;
+    DevCreateInfo.ppEnabledLayerNames=      (const char* const*)vkRuntimeInfoP->_engExtAndLayers.DevLayerNamesPP;
     DevCreateInfo.pEnabledFeatures=         NULL;
     DevCreateInfo.flags=                    0;
     CHK_VK(vkCreateDevice(vkRuntimeInfoP->physSelectedDevice,&DevCreateInfo,NULL,&(vkRuntimeInfoP->device)));
