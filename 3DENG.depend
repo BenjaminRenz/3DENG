@@ -1,5 +1,5 @@
 # depslib dependency file v1.0
-1613092432 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
+1613145712 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
 	<stdio.h>
 	<stdlib.h>
 	<string.h>
@@ -224,7 +224,7 @@
 	"xmlReader/stringutils.h"
 	"bmpLoader/bmpLoader.h"
 
-1613069529 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\daeloader\daeloader.c
+1613098460 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\daeloader\daeloader.c
 	"daeLoader/daeLoader.h"
 	"bmpLoader/bmpLoader.h"
 	"xmlReader/xmlReader.h"

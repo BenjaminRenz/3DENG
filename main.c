@@ -43,7 +43,7 @@ struct modelPathAndName{
     Dl_utf32Char* modelName;
 };
 
-DlTypedef_plain(modelPathAndName,struct modelPathAndName*);
+DlTypedef_plain(modelPathAndName,struct modelPathAndName);
 
 struct engTextureHandle{
     //this field must be filled before image handle creation
@@ -78,7 +78,7 @@ struct eng3dObject{
     VkDeviceSize             IdxInBufOffset;
     uint32_t                 vertexCount;
 };
-DlTypedef_plain(eng3dObjP,struct eng3dObject*);
+DlTypedef_plain(eng3dObj,struct eng3dObject);
 DlTypedef_plain(bufferHandle,struct engBufferHandle)
 
 struct _engExtensionsAndLayers{
@@ -142,7 +142,7 @@ struct VulkanRuntimeInfo{
     struct engBufferHandle DeviceVertexBuffer;
 };
 
-Dl_eng3dObjP* scene1ObjectsDlP;
+Dl_eng3dObj* scene1ObjectsDlP;
 
 VkCommandBuffer _eng_cmdBuf_startSingleUse(struct VulkanRuntimeInfo* vkRuntimeInfoP);
 void _eng_cmdBuf_endAndSubmitSingleUse(struct VulkanRuntimeInfo* vkRuntimeInfoP,VkCommandBuffer SingleUseBufferP);
@@ -366,19 +366,19 @@ VkMemoryRequirements _eng_getBufAlignAndTypeRequirementsWithTestBuffer(struct Vu
 
 
 void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP,Dl_modelPathAndName* modelPathAndNameDlP){
-    Dl_eng3dObjP* all3dObjectsDlP=Dl_eng3dObjP_alloc(modelPathAndNameDlP->itemcnt,0);
+    Dl_eng3dObj* all3dObjectsDlP=Dl_eng3dObj_alloc(modelPathAndNameDlP->itemcnt,0);
     scene1ObjectsDlP=all3dObjectsDlP;
     for(size_t ObjectNum=0;ObjectNum<modelPathAndNameDlP->itemcnt;ObjectNum++){
-        Dl_utf32Char* FilePathString=modelPathAndNameDlP->items[ObjectNum]->pathString;
-        Dl_utf32Char* ModelNameString=modelPathAndNameDlP->items[ObjectNum]->modelName;
-        daeLoader_load(FilePathString,ModelNameString,&(all3dObjectsDlP->items[ObjectNum]->daeData));
-        all3dObjectsDlP->items[ObjectNum]->vertexCount=all3dObjectsDlP->items[ObjectNum]->daeData.IndexingDlP->itemcnt;
+        Dl_utf32Char* FilePathString=modelPathAndNameDlP->items[ObjectNum].pathString;
+        Dl_utf32Char* ModelNameString=modelPathAndNameDlP->items[ObjectNum].modelName;
+        daeLoader_load(FilePathString,ModelNameString,&(all3dObjectsDlP->items[ObjectNum].daeData));
+        all3dObjectsDlP->items[ObjectNum].vertexCount=all3dObjectsDlP->items[ObjectNum].daeData.IndexingDlP->itemcnt;
     }
     //Get size requirement for gpu side buffer
     Dl_bufferHandle* gpuVertBufHandlesDlP=Dl_bufferHandle_alloc(all3dObjectsDlP->itemcnt,0);
     VkDeviceSize TotalGpuBuffMemory=0;
     for(size_t ObjectNum=0;ObjectNum<all3dObjectsDlP->itemcnt;ObjectNum++){
-        struct eng3dObject* current3dObjectP=all3dObjectsDlP->items[ObjectNum];
+        struct eng3dObject* current3dObjectP=&(all3dObjectsDlP->items[ObjectNum]);
         current3dObjectP->PosNormUvInBufOffset=0;
         current3dObjectP->IdxInBufOffset=current3dObjectP->daeData.CombinedPsNrUvDlP->itemcnt*sizeof(float);
         current3dObjectP->VertexBufferP=&(gpuVertBufHandlesDlP->items[ObjectNum]);
@@ -392,18 +392,18 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP,Dl_modelPat
         //calculate total allocation size while checking alignment
         //in principle alignment and memoryType bits are the same for all resources created with the same usage Flags
         //so one could in principle always refer to the first object for alignment
-        TotalGpuBuffMemory+=current3dObjectP->VertexBufferP->MemoryRequirements.size;
         VkDeviceSize LastBufferAlignmentOvershoot=TotalGpuBuffMemory%(current3dObjectP->VertexBufferP->MemoryRequirements.alignment);
         if(LastBufferAlignmentOvershoot){
             TotalGpuBuffMemory+=((current3dObjectP->VertexBufferP->MemoryRequirements.alignment)-LastBufferAlignmentOvershoot);
         }
         current3dObjectP->VertexBufferP->OffsetInMemoryInBytes=TotalGpuBuffMemory;
+        TotalGpuBuffMemory+=current3dObjectP->VertexBufferP->MemoryRequirements.size;
     }
 
     //Find the fastest GPU side memory, while checking for unified memory
     uint32_t resultMemoryBits;
     //all buffers in this memory have the same memoryType requirements, so get the memoryTypeBits from the first object's buffer
-    uint32_t supportedMemTypeGpuSide=all3dObjectsDlP->items[0]->VertexBufferP->MemoryRequirements.memoryTypeBits;
+    uint32_t supportedMemTypeGpuSide=all3dObjectsDlP->items[0].VertexBufferP->MemoryRequirements.memoryTypeBits;
     uint32_t GpuSideMemoryType=_eng_Memory_findBestType(vkRuntimeInfoP,~supportedMemTypeGpuSide,
                                                             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,0,      //force device local
                                                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,        //downrank host visible memory
@@ -422,18 +422,18 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP,Dl_modelPat
         optVtxStagingDlP=Dl_bufferHandle_alloc(all3dObjectsDlP->itemcnt,NULL);  //allocate an buffer handle for each object's vertex buffer
         for(size_t ObjectNum=0;ObjectNum<all3dObjectsDlP->itemcnt;ObjectNum++){
             //copy contentSize information from GPU side buffer
-            optVtxStagingDlP->items[ObjectNum].ContentSizeInBytes=all3dObjectsDlP->items[ObjectNum]->VertexBufferP->ContentSizeInBytes;
+            optVtxStagingDlP->items[ObjectNum].ContentSizeInBytes=all3dObjectsDlP->items[ObjectNum].VertexBufferP->ContentSizeInBytes;
             optVtxStagingDlP->items[ObjectNum].BufferUsageFlags=VK_BUFFER_USAGE_INDEX_BUFFER_BIT|
                                                                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|
                                                                  VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT|
                                                                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
             _eng_Buffer_createHandle(vkRuntimeInfoP,&(optVtxStagingDlP->items[ObjectNum]));
-            optTotalCpuBuffMemory+=optVtxStagingDlP->items[ObjectNum].MemoryRequirements.size;
             VkDeviceSize LastBufferAlignmentOvershoot=optTotalCpuBuffMemory%(optVtxStagingDlP->items[ObjectNum].MemoryRequirements.alignment);
             if(LastBufferAlignmentOvershoot){
                 optTotalCpuBuffMemory+=((optVtxStagingDlP->items[ObjectNum].MemoryRequirements.alignment)-LastBufferAlignmentOvershoot);
             }
             optVtxStagingDlP->items[ObjectNum].OffsetInMemoryInBytes=optTotalCpuBuffMemory;
+            optTotalCpuBuffMemory+=optVtxStagingDlP->items[ObjectNum].MemoryRequirements.size;
         }
         //Allocate CPU side memory
         uint32_t supportedMemTypeCpuSide=optVtxStagingDlP->items[0].MemoryRequirements.memoryTypeBits;
@@ -449,10 +449,10 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP,Dl_modelPat
 
     //Bind Buffers
     for(size_t ObjectNum=0;ObjectNum<all3dObjectsDlP->itemcnt;ObjectNum++){
-        all3dObjectsDlP->items[ObjectNum]->VertexBufferP->Memory=VtxGpuSideMemory;
-        CHK_VK(vkBindBufferMemory(vkRuntimeInfoP->device,all3dObjectsDlP->items[ObjectNum]->VertexBufferP->BufferHandle,
-                                                         all3dObjectsDlP->items[ObjectNum]->VertexBufferP->Memory,
-                                                         all3dObjectsDlP->items[ObjectNum]->VertexBufferP->OffsetInMemoryInBytes));
+        all3dObjectsDlP->items[ObjectNum].VertexBufferP->Memory=VtxGpuSideMemory;
+        CHK_VK(vkBindBufferMemory(vkRuntimeInfoP->device,all3dObjectsDlP->items[ObjectNum].VertexBufferP->BufferHandle,
+                                                         all3dObjectsDlP->items[ObjectNum].VertexBufferP->Memory,
+                                                         all3dObjectsDlP->items[ObjectNum].VertexBufferP->OffsetInMemoryInBytes));
         //Bind Staging Buffer
         if(!unifiedMemoryFlag){
             optVtxStagingDlP->items[ObjectNum].Memory=optCpuStagingMemory;
@@ -472,27 +472,27 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP,Dl_modelPat
                                optVtxStagingDlP->items[ObjectNum].OffsetInMemoryInBytes,
                                optVtxStagingDlP->items[ObjectNum].ContentSizeInBytes,0,&mappedMemoryP));
         }else{
-            CHK_VK(vkMapMemory(vkRuntimeInfoP->device,all3dObjectsDlP->items[ObjectNum]->VertexBufferP->Memory,
-                               all3dObjectsDlP->items[ObjectNum]->VertexBufferP->OffsetInMemoryInBytes,
-                               all3dObjectsDlP->items[ObjectNum]->VertexBufferP->ContentSizeInBytes,0,&mappedMemoryP));
+            CHK_VK(vkMapMemory(vkRuntimeInfoP->device,all3dObjectsDlP->items[ObjectNum].VertexBufferP->Memory,
+                               all3dObjectsDlP->items[ObjectNum].VertexBufferP->OffsetInMemoryInBytes,
+                               all3dObjectsDlP->items[ObjectNum].VertexBufferP->ContentSizeInBytes,0,&mappedMemoryP));
         }
 
         //copy position,normal,uv data
-        memcpy(((char*)mappedMemoryP)+all3dObjectsDlP->items[ObjectNum]->PosNormUvInBufOffset,
-               all3dObjectsDlP->items[ObjectNum]->daeData.CombinedPsNrUvDlP->items,
-               all3dObjectsDlP->items[ObjectNum]->daeData.CombinedPsNrUvDlP->itemcnt*sizeof(float));
+        memcpy(((char*)mappedMemoryP)+all3dObjectsDlP->items[ObjectNum].PosNormUvInBufOffset,
+               all3dObjectsDlP->items[ObjectNum].daeData.CombinedPsNrUvDlP->items,
+               all3dObjectsDlP->items[ObjectNum].daeData.CombinedPsNrUvDlP->itemcnt*sizeof(float));
         //copy combined index
-        memcpy(((char*)mappedMemoryP)+all3dObjectsDlP->items[ObjectNum]->IdxInBufOffset,
-               all3dObjectsDlP->items[ObjectNum]->daeData.IndexingDlP->items,
-               all3dObjectsDlP->items[ObjectNum]->daeData.IndexingDlP->itemcnt*sizeof(uint32_t));
+        memcpy(((char*)mappedMemoryP)+all3dObjectsDlP->items[ObjectNum].IdxInBufOffset,
+               all3dObjectsDlP->items[ObjectNum].daeData.IndexingDlP->items,
+               all3dObjectsDlP->items[ObjectNum].daeData.IndexingDlP->itemcnt*sizeof(uint32_t));
         if(!unifiedMemoryFlag){
             vkUnmapMemory(vkRuntimeInfoP->device,optVtxStagingDlP->items[ObjectNum].Memory);
         }else{
-            vkUnmapMemory(vkRuntimeInfoP->device,all3dObjectsDlP->items[ObjectNum]->VertexBufferP->Memory);
+            vkUnmapMemory(vkRuntimeInfoP->device,all3dObjectsDlP->items[ObjectNum].VertexBufferP->Memory);
         }
 
-        Dl_float_delete(all3dObjectsDlP->items[ObjectNum]->daeData.CombinedPsNrUvDlP);
-        Dl_uint32_delete(all3dObjectsDlP->items[ObjectNum]->daeData.IndexingDlP);
+        Dl_float_delete(all3dObjectsDlP->items[ObjectNum].daeData.CombinedPsNrUvDlP);
+        Dl_uint32_delete(all3dObjectsDlP->items[ObjectNum].daeData.IndexingDlP);
     }
 
     if(!unifiedMemoryFlag){
@@ -502,8 +502,8 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP,Dl_modelPat
         VkBufferCopy copyRegion={0};
         for(size_t ObjectNum=0;ObjectNum<optVtxStagingDlP->itemcnt;ObjectNum++){
             copyRegion.size=optVtxStagingDlP->items[ObjectNum].ContentSizeInBytes;
-            vkCmdCopyBuffer(UploadCommandBuffer,all3dObjectsDlP->items[ObjectNum]->VertexBufferP->BufferHandle
-                                               ,optVtxStagingDlP->items[ObjectNum].BufferHandle,1,&copyRegion);
+            vkCmdCopyBuffer(UploadCommandBuffer,optVtxStagingDlP->items[ObjectNum].BufferHandle,
+                                                all3dObjectsDlP->items[ObjectNum].VertexBufferP->BufferHandle,1,&copyRegion);
         }
         //end recording and submit
         _eng_cmdBuf_endAndSubmitSingleUse(vkRuntimeInfoP,UploadCommandBuffer);
@@ -1350,7 +1350,7 @@ void eng_createRenderCommandBuffers(struct VulkanRuntimeInfo* vkRuntimeInfoP){
         RenderPassInfo.renderPass=vkRuntimeInfoP->renderPass;
         vkCmdBeginRenderPass(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],&RenderPassInfo,VK_SUBPASS_CONTENTS_INLINE);
         for(size_t ObjectNum=0;ObjectNum<scene1ObjectsDlP->itemcnt;ObjectNum++){
-            struct eng3dObject*  currentObjectP=scene1ObjectsDlP->items[ObjectNum];
+            struct eng3dObject*  currentObjectP=&(scene1ObjectsDlP->items[ObjectNum]);
             VkDeviceSize* PNUBufferOffsetP=&(currentObjectP->PosNormUvInBufOffset);
             vkCmdBindVertexBuffers(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],0,1,&(currentObjectP->VertexBufferP->BufferHandle),PNUBufferOffsetP);
             vkCmdBindIndexBuffer(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],currentObjectP->VertexBufferP->BufferHandle,currentObjectP->IdxInBufOffset,VK_INDEX_TYPE_UINT32);
@@ -1522,11 +1522,11 @@ int main(int argc, char** argv){
     eng_createGraphicsPipeline(&engVkRuntimeInfo);                          //depends on eng_createShaderModule and eng_createImageViews and eng_createDescriptorPoolAndSets
     eng_createFramebuffers(&engVkRuntimeInfo);                              //depends on eng_createRenderPass   and eng_createImageViews
     eng_createCommandPool(&engVkRuntimeInfo);                               //depends on eng_createDevice
-    Dl_modelPathAndName* modelPathAndNameDlP=Dl_modelPathAndName_alloc(2,NULL);
-    modelPathAndNameDlP->items[0]->pathString=Dl_utf32Char_fromString("cube.dae");
-    modelPathAndNameDlP->items[0]->modelName =Dl_utf32Char_fromString("cube");
-    modelPathAndNameDlP->items[1]->pathString=Dl_utf32Char_fromString("cylinder.dae");
-    modelPathAndNameDlP->items[1]->modelName =Dl_utf32Char_fromString("cylinder");
+    Dl_modelPathAndName* modelPathAndNameDlP=Dl_modelPathAndName_alloc(1,NULL);
+    modelPathAndNameDlP->items[0].pathString=Dl_utf32Char_fromString("./res/cube.dae");
+    modelPathAndNameDlP->items[0].modelName =Dl_utf32Char_fromString("Cube-mesh");
+    //modelPathAndNameDlP->items[1].pathString=Dl_utf32Char_fromString("./res/cube_jank.dae");
+    //modelPathAndNameDlP->items[1].modelName =Dl_utf32Char_fromString("Cube-mesh");
 
     eng_load_static_models(&engVkRuntimeInfo,modelPathAndNameDlP);          //depends on eng_createCommandPool and creates vertex buffer
     eng_writeDescriptorSets(&engVkRuntimeInfo);                             //depends on eng_load_static_models

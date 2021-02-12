@@ -46,16 +46,16 @@ void _daeLoader_getVertexData(struct DataFromDae* outputDataP,xmlTreeElement* xm
         dprintf(DBGT_ERROR,"The collada file does not contain a mesh with the name %s",Dl_utf32Char_toStringAlloc(meshIdString));
         exit(1);
     }
-    xmlTreeElement* xmlMeshElementP=getFirstSubelementWithASCII(xmlGeoElementP,"mesh",NULL,NULL,0,0);
+    xmlTreeElement* xmlMeshElementP=getFirstSubelementWithASCII(xmlGeoElementP,"mesh",NULL,NULL,xmltype_tag,0);
 
     //Get triangles xml element
-    xmlTreeElement* xmlTrianglesP=getFirstSubelementWithASCII(xmlMeshElementP,"triangles",NULL,NULL,0,0);
+    xmlTreeElement* xmlTrianglesP=getFirstSubelementWithASCII(xmlMeshElementP,"triangles",NULL,NULL,xmltype_tag,0);
     Dl_utf32Char* TrianglesCountString=getValueFromKeyNameASCII(xmlTrianglesP->attributes,"count");
     Dl_int64* TrianglesCount=Dl_utf32Char_to_int64_freeArg1(Dl_CM_initFromList(' ',' '),TrianglesCountString);
     dprintf(DBGT_INFO,"Model has %lld triangles",TrianglesCount->items[0]);
 
     //get triangle position, normal, uv index list
-    xmlTreeElement* xmlTrianglesOrderP=getFirstSubelementWithASCII(xmlTrianglesP,"p",NULL,NULL,0,0);
+    xmlTreeElement* xmlTrianglesOrderP=getFirstSubelementWithASCII(xmlTrianglesP,"p",NULL,NULL,xmltype_tag,0);
     if(!xmlTrianglesOrderP){
         dprintf(DBGT_ERROR,"No Triangles Order list found");exit(1);
     }
@@ -66,23 +66,23 @@ void _daeLoader_getVertexData(struct DataFromDae* outputDataP,xmlTreeElement* xm
     Dl_int64* TempTriangleIndexDlP=Dl_utf32Char_to_int64_freeArg1(Dl_CM_initFromList(' ',' '),xmlTrianglesOrderContentP->charData);
 
     //Define structures to copy read data to
-    Dl_float* PosDlP;
-    Dl_int32* PosIndexDlP;
-    Dl_float* NormDlP;
-    Dl_int32* NormIndexDlP;
-    Dl_float* UvDlP;
-    Dl_int32* UvIndexDlP;
+    Dl_float* PosDlP=NULL;
+    Dl_int32* PosIndexDlP=NULL;
+    Dl_float* NormDlP=NULL;
+    Dl_int32* NormIndexDlP=NULL;
+    Dl_float* UvDlP=NULL;
+    Dl_int32* UvIndexDlP=NULL;
 
     //Get input accessor and position,vertex,normal source
-    Dl_xmlP* InputXmlTrianglesP=getAllSubelementsWithASCII(xmlTrianglesP,"input",NULL,NULL,0,0);
+    Dl_xmlP* InputXmlTrianglesP=getAllSubelementsWithASCII(xmlTrianglesP,"input",NULL,NULL,xmltype_tag,0);
     for(uint32_t inputsemantic=0;inputsemantic<InputXmlTrianglesP->itemcnt;inputsemantic++){
         Dl_utf32Char* semanticStringDlP=getValueFromKeyNameASCII(InputXmlTrianglesP->items[inputsemantic]->attributes,"semantic");
         Dl_utf32Char* offsetStringDlP  =getValueFromKeyNameASCII(InputXmlTrianglesP->items[inputsemantic]->attributes,"offset");
         Dl_int64* offsetNumbersDlP =Dl_utf32Char_to_int64(Dl_CM_initFromList(' ',' '),offsetStringDlP);
-        Dl_utf32Char* sourceStringWithHashtagDlP=getValueFromKeyNameASCII(((struct xmlTreeElement**)InputXmlTrianglesP->items)[inputsemantic]->attributes,"source");
+        Dl_utf32Char* sourceStringWithHashtagDlP=getValueFromKeyNameASCII(InputXmlTrianglesP->items[inputsemantic]->attributes,"source");
         Dl_utf32Char* sourceStringDlP=Dl_utf32Char_subList(sourceStringWithHashtagDlP,1,-1);
         //get corresponding source data
-        xmlTreeElement* refXmlElmntP=getFirstSubelementWithASCII(xmlMeshElementP,NULL,"id",sourceStringDlP,0,0);
+        xmlTreeElement* refXmlElmntP=getFirstSubelementWithASCII(xmlMeshElementP,NULL,"id",sourceStringDlP,xmltype_tag,0);
         //Handle VERTEX special case, which has to jump to POSITIONS again
         xmlTreeElement* sourceXmlElmntP;
         if(Dl_utf32Char_equal_freeArg2(refXmlElmntP->name,Dl_utf32Char_fromString("vertices"))){
@@ -93,7 +93,7 @@ void _daeLoader_getVertexData(struct DataFromDae* outputDataP,xmlTreeElement* xm
         }else{
             sourceXmlElmntP=refXmlElmntP;
         }
-        xmlTreeElement* floatArrayXmlElementP=getFirstSubelementWithASCII(sourceXmlElmntP,"float_array",NULL,NULL,0,1);
+        xmlTreeElement* floatArrayXmlElementP=getFirstSubelementWithASCII(sourceXmlElmntP,"float_array",NULL,NULL,xmltype_tag,1);
         xmlTreeElement* floatArrayCharDataP=getFirstSubelementWith(floatArrayXmlElementP,NULL,NULL,NULL,xmltype_chardata,1);
         Dl_float* sourceFloatArrayDlP=Dl_utf32Char_to_float_freeArg123(Dl_CM_initFromList(' ',' '),Dl_CM_initFromList('e','e','E','E'),Dl_CM_initFromList('.','.',',',','),floatArrayCharDataP->charData);
         //check if FloatArray length corresponds with the expected count specified in the xml file
@@ -131,6 +131,14 @@ void _daeLoader_getVertexData(struct DataFromDae* outputDataP,xmlTreeElement* xm
         for(uint32_t IdxInIndexArray=0;IdxInIndexArray<numberOfVertexIndices;IdxInIndexArray++){
             NextIdxReadDlP->items[IdxInIndexArray]=TempTriangleIndexDlP->items[stridePerVertex*IdxInIndexArray+offsetInIdxArray];
         }
+    }
+    if(!NormDlP){//model does not have any normal data
+        dprintf(DBGT_ERROR,"Model has missing normal data!");
+        exit(1);
+    }
+    if(!UvDlP){
+        dprintf(DBGT_ERROR,"Model has missing uv data");
+        exit(1);
     }
 
     //Since vulkan does not support individual index buffers we need to list vertices and combine only the one with the same position& normal& uv
