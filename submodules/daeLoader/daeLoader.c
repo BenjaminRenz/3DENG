@@ -33,7 +33,6 @@ void _daeLoader_getTextureData(struct DataFromDae* outputDataP,xmlTreeElement* x
         Dl_utf32Char* LoadImagePathString=Dl_utf32Char_mergeDulplicate(PrePathString,LoadImageFilenameString);
         char* imageLoadPathString=Dl_utf32Char_toStringAlloc_freeArg1(LoadImagePathString);
         dprintf(DBGT_INFO,"Load Image from %s",imageLoadPathString);
-
         outputDataP->DiffuseTexture=bmpLoader_load(imageLoadPathString,"BGRA");
     }
     Dl_utf32Char_delete(PrePathString);
@@ -43,7 +42,7 @@ void _daeLoader_getVertexData(struct DataFromDae* outputDataP,xmlTreeElement* xm
     xmlTreeElement* xmlLibGeoElementP=getFirstSubelementWithASCII(xmlColladaElementP,"library_geometries",NULL,NULL,xmltype_tag,0);
     xmlTreeElement* xmlGeoElementP=getFirstSubelementWithASCII(xmlLibGeoElementP,"geometry","id",meshIdString,xmltype_tag,0);
     if(!xmlGeoElementP){
-        dprintf(DBGT_ERROR,"The collada file does not contain a mesh with the name %s",Dl_utf32Char_toStringAlloc(meshIdString));
+        dprintf(DBGT_ERROR,"The collada file does not contain a mesh with the name %s",Dl_utf32Char_toStringAlloc(meshIdString)); //TODO leaks memory
         exit(1);
     }
     xmlTreeElement* xmlMeshElementP=getFirstSubelementWithASCII(xmlGeoElementP,"mesh",NULL,NULL,xmltype_tag,0);

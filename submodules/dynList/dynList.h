@@ -27,10 +27,6 @@ static void Dl_##name##_resize(Dl_##name* ToResizeDlP,size_t NewNumOfElements){ 
         dprintf(DBGT_ERROR,"Dynlist to resize was a nullptr");                                              \
         exit(1);                                                                                            \
     }                                                                                                       \
-    if(!(ToResizeDlP->items)){                                                                              \
-        dprintf(DBGT_ERROR,"Dynlist items was a nullptr");                                                  \
-        exit(1);                                                                                            \
-    }                                                                                                       \
     ToResizeDlP->items=(c_type*)realloc(ToResizeDlP->items,sizeof(c_type)*NewNumOfElements);                \
     ToResizeDlP->itemcnt=NewNumOfElements;                                                                  \
 };                                                                                                          \
@@ -45,33 +41,15 @@ static Dl_##name* Dl_##name##_shallowCopy(Dl_##name* ToCopyDlP){                
     return Dl_##name##_alloc(ToCopyDlP->itemcnt,ToCopyDlP->items);                                          \
 }                                                                                                           \
 static Dl_##name* Dl_##name##_mergeDelete(Dl_##name* FirstDlP,Dl_##name* SecondDlP){                        \
-    if(!FirstDlP->itemcnt){                                                                                 \
-        if(!SecondDlP->itemcnt){                                                                            \
-            Dl_##name##_delete(FirstDlP);                                                                   \
-            Dl_##name##_delete(SecondDlP);                                                                  \
-            return Dl_##name##_alloc(0,0);                                                                  \
-        }else{                                                                                              \
-            Dl_##name##_delete(FirstDlP);                                                                   \
-            return SecondDlP;                                                                               \
-        }                                                                                                   \
-    }                                                                                                       \
-    if(!SecondDlP->itemcnt){                                                                                \
-        Dl_##name##_delete(SecondDlP);                                                                      \
-        return FirstDlP;                                                                                    \
-    }                                                                                                       \
-    Dl_##name##_append(FirstDlP,SecondDlP->itemcnt,SecondDlP->items);                                          \
-    Dl_##name##_delete(SecondDlP);                                                                             \
+    Dl_##name##_append(FirstDlP,SecondDlP->itemcnt,SecondDlP->items);                                       \
+    Dl_##name##_delete(SecondDlP);                                                                          \
     return FirstDlP;                                                                                        \
 }                                                                                                           \
 static Dl_##name* Dl_##name##_mergeDulplicate(Dl_##name* FirstDlP,Dl_##name* SecondDlP){                    \
-    if(!FirstDlP->itemcnt){                                                                                 \
-        if(!SecondDlP->itemcnt){                                                                            \
-            return Dl_##name##_alloc(0,NULL);                                                               \
-        }else{                                                                                              \
-            return Dl_##name##_alloc(SecondDlP->itemcnt,SecondDlP->items);                                  \
-        }                                                                                                   \
+    Dl_##name* newDlP=Dl_##name##_alloc(FirstDlP->itemcnt+SecondDlP->itemcnt,0);                            \
+    if(FirstDlP->itemcnt){                                                                                  \
+        memcpy(newDlP->items,FirstDlP->items,sizeof(c_type)*FirstDlP->itemcnt);                             \
     }                                                                                                       \
-    Dl_##name* newDlP=Dl_##name##_alloc(FirstDlP->itemcnt+SecondDlP->itemcnt,FirstDlP->items);              \
     if(SecondDlP->itemcnt){                                                                                 \
         memcpy(&(newDlP->items[FirstDlP->itemcnt]),SecondDlP->items,sizeof(c_type)*SecondDlP->itemcnt);     \
     }                                                                                                       \
