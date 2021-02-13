@@ -621,12 +621,11 @@ void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,xmlTreeElement*
                 }
             }
         }
-        free(reqLayerNameCharP);
         if(available_layer_idx==layerCount){ //layer was not found
-            free(LayerProptertiesP);
             dprintf(DBGT_ERROR,"Vulkan instance does not support required layer: %s",reqLayerNameCharP);
             exit(1);
         }
+        free(reqLayerNameCharP);
     }
     free(LayerProptertiesP);
 
@@ -650,12 +649,12 @@ void eng_createInstance(struct VulkanRuntimeInfo* vkRuntimeInfoP,xmlTreeElement*
                 }
             }
         }
-        free(reqExtensionNameCharP);
         if(available_extension_idx==extensionCount){ //extension was not found
-            free(ExtensionProptertiesP);
-            dprintf(DBGT_ERROR,"Vulkan instance does not support required extension");
+            dprintf(DBGT_ERROR,"Vulkan instance does not support required extension %s",reqExtensionNameCharP);
             exit(1);
         }
+        free(reqExtensionNameCharP);
+
     }
     free(ExtensionProptertiesP);
 

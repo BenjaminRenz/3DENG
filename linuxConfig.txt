@@ -1,0 +1,23 @@
+apt install cmake 
+install and compile vulkansdk from lunarg
+apt install libvulkan-dev libvulkan vulkan-utils mesa-vulkan-drivers libglfw-dev libglfw
+
+
+
+link libaries:
+vulkan
+shaderc_combined
+libglfw
+pthread
+
+search dir compiler:
+/pathToLunarGSdk/x86_64/include/shaderc
+/pathToLunarGSdk/x86_64/include/vulkan
+
+search dir linker:
+/pathToLunarGSdk/x86_64/lib
+/usr/lib/x86_64-linux-gnu
+
+in vk_setup.xml
+change VK_KHR_win32_surface 
+to     VK_KHR_xcb_surface
