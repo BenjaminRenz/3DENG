@@ -45,12 +45,22 @@ static Dl_##name* Dl_##name##_shallowCopy(Dl_##name* ToCopyDlP){                
     return Dl_##name##_alloc(ToCopyDlP->itemcnt,ToCopyDlP->items);                                          \
 }                                                                                                           \
 static Dl_##name* Dl_##name##_mergeDelete(Dl_##name* FirstDlP,Dl_##name* SecondDlP){                        \
-    size_t oldItemcnt=FirstDlP->itemcnt;                                                                    \
-    Dl_##name##_resize(FirstDlP,FirstDlP->itemcnt+SecondDlP->itemcnt);                                      \
-    if(FirstDlP->itemcnt){                                                                                  \
-        memcpy(&(FirstDlP->items[oldItemcnt]),SecondDlP->items,sizeof(c_type)*SecondDlP->itemcnt);          \
+    if(!FirstDlP->itemcnt){                                                                                 \
+        if(!SecondDlP->itemcnt){                                                                            \
+            Dl_##name##_delete(FirstDlP);                                                                   \
+            Dl_##name##_delete(SecondDlP);                                                                  \
+            return Dl_##name##_alloc(0,0);                                                                  \
+        }else{                                                                                              \
+            Dl_##name##_delete(FirstDlP);                                                                   \
+            return SecondDlP;                                                                               \
+        }                                                                                                   \
     }                                                                                                       \
-    Dl_##name##_delete(SecondDlP);                                                                          \
+    if(!SecondDlP->itemcnt){                                                                                \
+        Dl_##name##_delete(SecondDlP);                                                                      \
+        return FirstDlP;                                                                                    \
+    }                                                                                                       \
+    Dl_##name##_append(FirstDlP,SecondDlP->itemcnt,SecondDlP->items);                                          \
+    Dl_##name##_delete(SecondDlP);                                                                             \
     return FirstDlP;                                                                                        \
 }                                                                                                           \
 static Dl_##name* Dl_##name##_mergeDulplicate(Dl_##name* FirstDlP,Dl_##name* SecondDlP){                    \
