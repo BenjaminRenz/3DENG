@@ -371,6 +371,7 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP,Dl_modelPat
     for(size_t ObjectNum=0;ObjectNum<modelPathAndNameDlP->itemcnt;ObjectNum++){
         Dl_utf32Char* FilePathString=modelPathAndNameDlP->items[ObjectNum].pathString;
         Dl_utf32Char* ModelNameString=modelPathAndNameDlP->items[ObjectNum].modelName;
+        dprintf(DBGT_INFO,"Itemcount of model Path %d, address of 3dobj %x",modelPathAndNameDlP->itemcnt,&(all3dObjectsDlP->items[ObjectNum].daeData));
         daeLoader_load(FilePathString,ModelNameString,&(all3dObjectsDlP->items[ObjectNum].daeData));
         all3dObjectsDlP->items[ObjectNum].vertexCount=all3dObjectsDlP->items[ObjectNum].daeData.IndexingDlP->itemcnt;
     }
@@ -743,7 +744,6 @@ uint8_t* eng_vulkan_generate_device_ranking(struct VulkanRuntimeInfo* vkRuntimeI
             }
             free(reqLayerNameCharP);
             if(available_layer_idx==layerCount){ //layer was not found
-                free(LayerProptertiesP);
                 deviceRankingP[physDevIdx]=0;
                 break;
             }

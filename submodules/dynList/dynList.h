@@ -16,7 +16,7 @@ static void Dl_##name##_delete(Dl_##name* ToDeleteDlP);                         
 static Dl_##name* Dl_##name##_alloc(size_t numOfNewElements, c_type* optionalInitP){                        \
     Dl_##name* newDlP=(Dl_##name*)malloc(sizeof(Dl_##name));                                                \
     newDlP->itemcnt=numOfNewElements;                                                                       \
-    newDlP->items=(c_type*)malloc(sizeof(Dl_##name )*numOfNewElements);                                     \
+    newDlP->items=(c_type*)malloc(sizeof(c_type)*numOfNewElements);                                         \
     if(numOfNewElements&&optionalInitP){                                                                    \
         memcpy(newDlP->items,optionalInitP,sizeof(c_type)*numOfNewElements);                                \
     }                                                                                                       \
@@ -36,22 +36,20 @@ static void Dl_##name##_resize(Dl_##name* ToResizeDlP,size_t NewNumOfElements){ 
 };                                                                                                          \
 static void Dl_##name##_append(Dl_##name* ToAppendDlP,size_t NumOfAdditionalElements, c_type* InitP){       \
     size_t oldItemcnt=ToAppendDlP->itemcnt;                                                                 \
-    Dl_##name##_resize(ToAppendDlP,oldItemcnt+NumOfAdditionalElements);                                                \
-    if(InitP){                                                                                              \
+    Dl_##name##_resize(ToAppendDlP,oldItemcnt+NumOfAdditionalElements);                                     \
+    if((NumOfAdditionalElements>0)&&InitP){                                                                 \
         memcpy(&(ToAppendDlP->items[oldItemcnt]),InitP,sizeof(c_type)*NumOfAdditionalElements);             \
     }                                                                                                       \
 }                                                                                                           \
 static Dl_##name* Dl_##name##_shallowCopy(Dl_##name* ToCopyDlP){                                            \
-    Dl_##name* newDlP=(Dl_##name*)malloc(sizeof(Dl_##name));                                                \
-    newDlP->itemcnt=ToCopyDlP->itemcnt;                                                                     \
-    newDlP->items=(c_type*)malloc(sizeof(Dl_##name )*ToCopyDlP->itemcnt);                                   \
-    memcpy(newDlP->items,ToCopyDlP->items,sizeof(c_type)*ToCopyDlP->itemcnt);                               \
-    return newDlP;                                                                                          \
+    return Dl_##name##_alloc(ToCopyDlP->itemcnt,ToCopyDlP->items);                                          \
 }                                                                                                           \
 static Dl_##name* Dl_##name##_mergeDelete(Dl_##name* FirstDlP,Dl_##name* SecondDlP){                        \
     size_t oldItemcnt=FirstDlP->itemcnt;                                                                    \
     Dl_##name##_resize(FirstDlP,FirstDlP->itemcnt+SecondDlP->itemcnt);                                      \
-    memcpy(&(FirstDlP->items[oldItemcnt]),SecondDlP->items,sizeof(c_type)*SecondDlP->itemcnt);              \
+    if(FirstDlP->itemcnt){                                                                                  \
+        memcpy(&(FirstDlP->items[oldItemcnt]),SecondDlP->items,sizeof(c_type)*SecondDlP->itemcnt);          \
+    }                                                                                                       \
     Dl_##name##_delete(SecondDlP);                                                                          \
     return FirstDlP;                                                                                        \
 }                                                                                                           \
@@ -80,19 +78,26 @@ static void Dl_##name##_delete(Dl_##name* ToDeleteDlP){                         
     for(size_t subitem=0;subitem<ToDeleteDlP->itemcnt;subitem++){                                           \
         Dl_##childname##_delete(ToDeleteDlP->items[subitem]);                                               \
     }                                                                                                       \
-    free(ToDeleteDlP->items);                                                                               \
+    if(ToDeleteDlP->itemcnt){                                                                               \
+        free(ToDeleteDlP->items);                                                                           \
+    }                                                                                                       \
     free(ToDeleteDlP);                                                                                      \
 }
 
 #define DlTypedef_plain(name,c_type)                                                                        \
 DlTypedef_generic(name,c_type)                                                                              \
 static void Dl_##name##_delete(Dl_##name* ToDeleteDlP){                                                     \
-    free(ToDeleteDlP->items);                                                                               \
+    if(ToDeleteDlP->itemcnt){                                                                               \
+        free(ToDeleteDlP->items);                                                                           \
+    }                                                                                                       \
     free(ToDeleteDlP);                                                                                      \
 }
 
 #define DlTypedef_compareFunc(name,c_type)                                                                  \
 static int Dl_##name##_equal(Dl_##name* FirstDlP,Dl_##name* SecondDlP){                                     \
+    if(!(FirstDlP->itemcnt) || !(SecondDlP->itemcnt)){                                                      \
+        return 0;                                                                                           \
+    }                                                                                                       \
     if(FirstDlP->itemcnt!=SecondDlP->itemcnt){                                                              \
         return 0;                                                                                           \
     }                                                                                                       \

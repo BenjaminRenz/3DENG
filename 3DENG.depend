@@ -1,5 +1,5 @@
 # depslib dependency file v1.0
-1613151077 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
+1613178212 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
 	<stdio.h>
 	<stdlib.h>
 	<string.h>
@@ -240,7 +240,7 @@
 1612977120 c:\users\badmin\desktop\gitprojects\3deng\submodules\bmploader\bmploader.h
 	<stdint.h>
 
-1613092159 c:\users\badmin\desktop\gitprojects\3deng\submodules\dynlist\dynlist.h
+1613183592 c:\users\badmin\desktop\gitprojects\3deng\submodules\dynlist\dynlist.h
 	"debugPrint/debugPrint.h"
 	"mathHelper/mathHelper.h"
 	<stdlib.h>
