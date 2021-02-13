@@ -54,9 +54,17 @@ static Dl_##name* Dl_##name##_mergeDelete(Dl_##name* FirstDlP,Dl_##name* SecondD
     return FirstDlP;                                                                                        \
 }                                                                                                           \
 static Dl_##name* Dl_##name##_mergeDulplicate(Dl_##name* FirstDlP,Dl_##name* SecondDlP){                    \
+    if(!FirstDlP->itemcnt){                                                                                 \
+        if(!SecondDlP->itemcnt){                                                                            \
+            return Dl_##name##_alloc(0,NULL);                                                               \
+        }else{                                                                                              \
+            return Dl_##name##_alloc(SecondDlP->itemcnt,SecondDlP->items);                                  \
+        }                                                                                                   \
+    }                                                                                                       \
     Dl_##name* newDlP=Dl_##name##_alloc(FirstDlP->itemcnt+SecondDlP->itemcnt,FirstDlP->items);              \
-    size_t oldItemcnt=FirstDlP->itemcnt;                                                                    \
-    memcpy(&(newDlP->items[oldItemcnt]),SecondDlP->items,sizeof(c_type)*SecondDlP->itemcnt);                \
+    if(SecondDlP->itemcnt){                                                                                 \
+        memcpy(&(newDlP->items[FirstDlP->itemcnt]),SecondDlP->items,sizeof(c_type)*SecondDlP->itemcnt);     \
+    }                                                                                                       \
     return newDlP;                                                                                          \
 }                                                                                                           \
 static Dl_##name* Dl_##name##_subList(Dl_##name* CompleteDlP,int32_t startIdx,int32_t endIdx){              \
