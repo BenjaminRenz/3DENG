@@ -221,7 +221,7 @@ void eng_createShaderModule(struct VulkanRuntimeInfo* vkRuntimeInfoP,char* Shade
 
 
 //ToDo do actual memory usage calculations for each heap
-int32_t _eng_Memory_findBestType(struct VulkanRuntimeInfo* vkRuntimeInfoP,VkMemoryPropertyFlags forbiddenBitfield,VkMemoryPropertyFlags requiredBitfield, VkMemoryPropertyFlags uprankBitfield, VkMemoryPropertyFlags downrankBitfield,VkMemoryPropertyFlags* ReturnBitfieldP, VkDeviceSize minsize){
+int32_t _eng_Memory_findBestType(struct VulkanRuntimeInfo* vkRuntimeInfoP,uint32_t supportedMemTypes,VkMemoryPropertyFlags reqProp, VkMemoryPropertyFlags uprankProp, VkMemoryPropertyFlags downrankProp,VkMemoryPropertyFlags* ReturnPropP, VkDeviceSize minsize){
     //Get information about all available memory types
     VkPhysicalDeviceMemoryProperties DeviceMemProperties;
     vkGetPhysicalDeviceMemoryProperties(vkRuntimeInfoP->physSelectedDevice,&DeviceMemProperties);
@@ -235,22 +235,22 @@ int32_t _eng_Memory_findBestType(struct VulkanRuntimeInfo* vkRuntimeInfoP,VkMemo
             continue;
         }
         //Check if memory is has any forbiddenProperty set
-        if(DeviceMemProperties.memoryTypes[MemoryTypeIdx].propertyFlags&forbiddenBitfield){
+        uint32_t MemoryTypeBit=(1<<MemoryTypeIdx);
+        if(!(MemoryTypeBit&supportedMemTypes)){
             continue;
         }
         //Check if memory has all requiriedProperty bits set
-        if((DeviceMemProperties.memoryTypes[MemoryTypeIdx].propertyFlags&requiredBitfield)!=requiredBitfield){
+        if((DeviceMemProperties.memoryTypes[MemoryTypeIdx].propertyFlags&reqProp)!=reqProp){
             continue;
         }
 
-        //Uprank memory that has VkMemoryPropertyFlags uprankBitfield set
-        currentRank+=countBitsInUint32(DeviceMemProperties.memoryTypes[MemoryTypeIdx].propertyFlags&uprankBitfield);
-        currentRank-=countBitsInUint32(DeviceMemProperties.memoryTypes[MemoryTypeIdx].propertyFlags&downrankBitfield);
+        currentRank+=countBitsInUint32(DeviceMemProperties.memoryTypes[MemoryTypeIdx].propertyFlags&uprankProp);      //Uprank memory that has VkMemoryPropertyFlags uprankProp set
+        currentRank-=countBitsInUint32(DeviceMemProperties.memoryTypes[MemoryTypeIdx].propertyFlags&downrankProp);
         if(currentRank>bestRanking){
             bestRanking=currentRank;
             bestRankingMemoryTypeIdx=(int32_t)MemoryTypeIdx;//we don't expect memory types over 2^31, so use the extra bit for error handling
-            if(ReturnBitfieldP){
-                *ReturnBitfieldP=DeviceMemProperties.memoryTypes[MemoryTypeIdx].propertyFlags;
+            if(ReturnPropP){
+                *ReturnPropP=DeviceMemProperties.memoryTypes[MemoryTypeIdx].propertyFlags;
             }
         }
     }
@@ -326,7 +326,7 @@ void _eng_DynamicUnifBuf_allocateAndBind(struct VulkanRuntimeInfo* vkRuntimeInfo
     }
 
     uint32_t bestMemoryTypeIdx=_eng_Memory_findBestType(vkRuntimeInfoP,
-                                ~UniformBufferMemoryRequirements.memoryTypeBits,
+                                UniformBufferMemoryRequirements.memoryTypeBits,
                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, //Memory needs to be Host visible
                                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT|VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                                 VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
@@ -405,7 +405,7 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP,Dl_modelPat
     uint32_t resultMemoryBits;
     //all buffers in this memory have the same memoryType requirements, so get the memoryTypeBits from the first object's buffer
     uint32_t supportedMemTypeGpuSide=all3dObjectsDlP->items[0].VertexBufferP->MemoryRequirements.memoryTypeBits;
-    uint32_t GpuSideMemoryType=_eng_Memory_findBestType(vkRuntimeInfoP,~supportedMemTypeGpuSide,
+    uint32_t GpuSideMemoryType=_eng_Memory_findBestType(vkRuntimeInfoP,supportedMemTypeGpuSide,
                                                             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,0,      //force device local
                                                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,        //downrank host visible memory
                                                             &(resultMemoryBits),                        //to check which memory was actually asigned
@@ -439,7 +439,7 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP,Dl_modelPat
         //Allocate CPU side memory
         uint32_t supportedMemTypeCpuSide=optVtxStagingDlP->items[0].MemoryRequirements.memoryTypeBits;
         uint32_t CpuSideMemoryType=_eng_Memory_findBestType(vkRuntimeInfoP,
-                                                                ~supportedMemTypeCpuSide,
+                                                                supportedMemTypeCpuSide,
                                                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
                                                                 0,
                                                                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,

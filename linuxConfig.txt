@@ -21,3 +21,10 @@ search dir linker:
 in vk_setup.xml
 change VK_KHR_win32_surface 
 to     VK_KHR_xcb_surface
+
+
+
+
+memoryTypeBits is a bitmask of supported memory types. 
+The bit i in this bitmask is set if and only if the VkMemoryType at the index i (called "memory type") 
+inside the memoryTypes array in VkPhysicalDeviceMemoryProperties structure is supported (1<<i).
