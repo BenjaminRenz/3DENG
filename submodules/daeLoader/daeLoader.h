@@ -14,5 +14,5 @@ struct DataFromDae{
 };
 
 
-void daeLoader_load(Dl_utf32Char* filePathString,Dl_utf32Char* meshIdString,struct DataFromDae* outputDataP);
+void daeLoader_load(Dl_utf32Char* filePathString,Dl_utf32Char* meshIdString,struct DataFromDae* outputDataP,char* outputFormatString,char pack32Toggle);
 #endif //DAELOADER_H_INCLUDED

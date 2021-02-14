@@ -1,6 +1,7 @@
 #include "bmpLoader/bmpLoader.h"
 #include "debugPrint/debugPrint.h"
 #include <stdlib.h> //for abs and fopen
+#include <string.h> //for memcpy
 
 
 //since bitmap is little endian we might need to convert it to our system's endianess
@@ -32,7 +33,25 @@ uint16_t _bmpLoader_uint16_t_from_le_file(FILE* FileP, int bigEndianFlag) {
 }
 
 //output format can be specified as "ARGB" or "BGGR" or "RGB0" for padding
-struct TextureData bmpLoader_load(char* filepathString,char* outputFormartString){
+struct TextureData bmpLoader_load(char* filepathString,char* outputFormatString,char pack32toogle){
+    //argument error handling
+    if(!filepathString){
+        dprintf(DBGT_ERROR,"no filepath specified");
+        exit(1);
+    }
+    if(!outputFormatString){
+        dprintf(DBGT_ERROR,"no format string specified");
+        exit(1);
+    }
+    char length=0;
+    while(outputFormatString[length]){
+        length++;
+    }
+    if(length!=4){
+        dprintf(DBGT_ERROR,"too short or too long format string specified");
+        exit(1);
+    }
+    char* editableFormatString=(char*)malloc(4*sizeof(char));
     struct TextureData OutputData;
     FILE* FileP = fopen(filepathString, "rb");
     if(FileP == NULL) {
@@ -52,6 +71,17 @@ struct TextureData bmpLoader_load(char* filepathString,char* outputFormartString
         dprintf(DBGT_ERROR,"File %s is not an BMP", filepathString);
         exit(1);
     }
+    //handle the case there pack32toodle is not set and we need to output independent of system endianness
+    if(!pack32toogle && bigEndianFlag){
+        //invert string order
+        editableFormatString[3]=outputFormatString[0];
+        editableFormatString[2]=outputFormatString[1];
+        editableFormatString[1]=outputFormatString[2];
+        editableFormatString[0]=outputFormatString[3];
+    }else{
+        memcpy(editableFormatString,outputFormatString,4*sizeof(char));
+    }
+
     fseek(FileP, 10, SEEK_SET); //Jump to 10bytes after the start of the file
     uint32_t BitmapOffset = _bmpLoader_uint32_t_from_le_file(FileP,bigEndianFlag);
     uint32_t biWidth = _bmpLoader_uint32_t_from_le_file(FileP,bigEndianFlag);
@@ -123,7 +153,7 @@ struct TextureData bmpLoader_load(char* filepathString,char* outputFormartString
     char colorChannelDstMask[4]={0};
     char dstWantsAlphaChannelFlag=0;
     for(int OutputFormatCharIdx=0;OutputFormatCharIdx<4;OutputFormatCharIdx++){
-        char ChannelNameChar=outputFormartString[OutputFormatCharIdx];
+        char ChannelNameChar=editableFormatString[OutputFormatCharIdx];
         switch(ChannelNameChar){
             case 'A':
                 dstWantsAlphaChannelFlag=1;
@@ -136,7 +166,7 @@ struct TextureData bmpLoader_load(char* filepathString,char* outputFormartString
             case '0':
                 break;
             default:
-                dprintf(DBGT_ERROR,"invalid outputFormartString");
+                dprintf(DBGT_ERROR,"invalid channel name in outputFormartString");
                 exit(1);
         }
     }

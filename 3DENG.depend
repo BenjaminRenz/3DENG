@@ -1,5 +1,5 @@
 # depslib dependency file v1.0
-1613239850 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
+1613275819 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
 	<stdio.h>
 	<stdlib.h>
 	<string.h>
@@ -218,13 +218,13 @@
 1604418712 c:\users\badmin\desktop\gitprojects\3deng\submodules\debugprint\debugprint.h
 	<stdio.h>
 
-1613062103 c:\users\badmin\desktop\gitprojects\3deng\submodules\daeloader\daeloader.h
+1613250169 c:\users\badmin\desktop\gitprojects\3deng\submodules\daeloader\daeloader.h
 	<stdint.h>
 	"dynList/dynList.h"
 	"xmlReader/stringutils.h"
 	"bmpLoader/bmpLoader.h"
 
-1613187411 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\daeloader\daeloader.c
+1613250411 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\daeloader\daeloader.c
 	"daeLoader/daeLoader.h"
 	"bmpLoader/bmpLoader.h"
 	"xmlReader/xmlReader.h"
@@ -232,12 +232,13 @@
 	"debugPrint/debugPrint.h"
 	"stdlib.h"
 
-1612977256 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\bmploader\bmploader.c
+1613250433 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\bmploader\bmploader.c
 	"bmpLoader/bmpLoader.h"
 	"debugPrint/debugPrint.h"
 	<stdlib.h>
+	<string.h>
 
-1612977120 c:\users\badmin\desktop\gitprojects\3deng\submodules\bmploader\bmploader.h
+1613246879 c:\users\badmin\desktop\gitprojects\3deng\submodules\bmploader\bmploader.h
 	<stdint.h>
 
 1613187875 c:\users\badmin\desktop\gitprojects\3deng\submodules\dynlist\dynlist.h

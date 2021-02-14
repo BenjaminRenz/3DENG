@@ -4,11 +4,11 @@
 #include "xmlReader/xmlHelper.h"
 #include "debugPrint/debugPrint.h"
 #include "stdlib.h"
-void _daeLoader_getTextureData(struct DataFromDae* outputDataP,struct xmlTreeElement* xmlColladaElementP);
+void _daeLoader_getTextureData(struct DataFromDae* outputDataP,xmlTreeElement* xmlColladaElementP,char* outputFormatString,char pack32Toggle);
 void _daeLoader_getVertexData(struct DataFromDae* outputDataP,struct xmlTreeElement* xmlColladaElementP,Dl_utf32Char* meshIdString);
 
 
-void daeLoader_load(Dl_utf32Char* filePathString,Dl_utf32Char* meshIdString,struct DataFromDae* outputDataP){
+void daeLoader_load(Dl_utf32Char* filePathString,Dl_utf32Char* meshIdString,struct DataFromDae* outputDataP,char* outputFormatString,char pack32Toggle){
     char* asciiFilepath=Dl_utf32Char_toStringAlloc(filePathString);
     FILE* cylinderDaeFileP=fopen(asciiFilepath,"rb");
     free(asciiFilepath);
@@ -18,10 +18,19 @@ void daeLoader_load(Dl_utf32Char* filePathString,Dl_utf32Char* meshIdString,stru
     //printXMLsubelements(xmlDaeRootP);
     xmlTreeElement* xmlColladaElementP=getNthChildWithType(xmlDaeRootP,0,xmltype_tag);
     _daeLoader_getVertexData(outputDataP,xmlColladaElementP,meshIdString);
-    _daeLoader_getTextureData(outputDataP,xmlColladaElementP);
+    _daeLoader_getTextureData(outputDataP,xmlColladaElementP,outputFormatString,pack32Toggle);
 }
 
-void _daeLoader_getTextureData(struct DataFromDae* outputDataP,xmlTreeElement* xmlColladaElementP){
+void _daeLoader_getTextureData(struct DataFromDae* outputDataP,xmlTreeElement* xmlColladaElementP,char* outputFormatString,char pack32Toggle){
+    outputDataP->DiffuseTexture.dataP=NULL;
+    outputDataP->DiffuseTexture.width=1;
+    outputDataP->DiffuseTexture.height=1;
+    outputDataP->NormalTexture.dataP=NULL;
+    outputDataP->NormalTexture.width=1;
+    outputDataP->NormalTexture.height=1;
+    outputDataP->RoughnessTexture.dataP=NULL;
+    outputDataP->RoughnessTexture.width=1;
+    outputDataP->RoughnessTexture.height=1;
     xmlTreeElement* xmlLibaryImagesP=getFirstSubelementWithASCII(xmlColladaElementP,"library_images",NULL,NULL,xmltype_tag,0);
     Dl_utf32Char* PrePathString=Dl_utf32Char_fromString("./res/");
     Dl_xmlP* allXmlImagesDlP=getAllSubelementsWithASCII(xmlLibaryImagesP,"image",NULL,NULL,xmltype_tag,0);
@@ -33,7 +42,7 @@ void _daeLoader_getTextureData(struct DataFromDae* outputDataP,xmlTreeElement* x
         Dl_utf32Char* LoadImagePathString=Dl_utf32Char_mergeDulplicate(PrePathString,LoadImageFilenameString);
         char* imageLoadPathString=Dl_utf32Char_toStringAlloc_freeArg1(LoadImagePathString);
         dprintf(DBGT_INFO,"Load Image from %s",imageLoadPathString);
-        outputDataP->DiffuseTexture=bmpLoader_load(imageLoadPathString,"BGRA");
+        outputDataP->DiffuseTexture=bmpLoader_load(imageLoadPathString,outputFormatString,pack32Toggle);
     }
     Dl_utf32Char_delete(PrePathString);
 }
