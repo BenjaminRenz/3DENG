@@ -1,5 +1,5 @@
 # depslib dependency file v1.0
-1613275819 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
+1613359237 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
 	<stdio.h>
 	<stdlib.h>
 	<string.h>
@@ -14,6 +14,7 @@
 	"xmlReader/xmlHelper.h"
 	"daeLoader/daeLoader.h"
 	"dynList/dynList.h"
+	"vkEngine/core.h"
 
 1605726241 s/xmlReader/stringutils.h"
 
@@ -254,4 +255,20 @@
 
 1613067754 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlhelper.c
 	"xmlReader/xmlHelper.h"
+
+1613356167 c:\users\badmin\desktop\gitprojects\3deng\submodules\vkengine\core.h
+	"glfw/glfw3.h"
+	"daeLoader/daeLoader.h"
+	"vkEngine/imgAndBuf.h"
+
+1613356208 c:\users\badmin\desktop\gitprojects\3deng\submodules\vkengine\imgandbuf.h
+	"vulkan/vulkan.h"
+	"vkEngine/core.h"
+	"dynList/dynList.h"
+
+1613338469 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\vkengine\core.c
+
+1613357076 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\vkengine\imgandbuf.c
+	"vkEngine/imgAndBuf.h"
+	"mathHelper/mathHelper.h"
 

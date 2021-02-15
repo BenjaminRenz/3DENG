@@ -15,23 +15,9 @@
 #include "daeLoader/daeLoader.h"
 #include "dynList/dynList.h"
 
-#define CHK_VK(function)                                                \
-do {                                                                    \
-    uint32_t errorcode=function;                                        \
-    if(errorcode){                                                      \
-        printf("Error code %d occured in line %d\n",errorcode,__LINE__);\
-        exit(1);                                                        \
-    }                                                                   \
-} while (0)
+#include "vkEngine/core.h"
 
-#define CHK_VK_ACK(function,action)                                     \
-do {                                                                    \
-    uint32_t errorcode=function;                                        \
-    if(errorcode){                                                      \
-        printf("Error code %d occured in line %d\n",errorcode,__LINE__);\
-        action;                                                         \
-    }                                                                   \
-} while (0)
+
 
 uint32_t eng_get_version_number_from_xmlemnt(xmlTreeElement* currentReqXmlP);
 uint32_t eng_get_version_number_from_UTF32DynlistP(Dl_utf32Char* inputStringP);
@@ -45,111 +31,8 @@ struct modelPathAndName{
 
 DlTypedef_plain(modelPathAndName,struct modelPathAndName);
 
-struct engTextureHandle{
-    //this field must be filled before image handle creation
-    VkExtent3D              ContentExtentInPx;
-    VkFormat                format;
-    VkImageTiling           tiling;
-    VkImageUsageFlags       usage;
-    //the fields below are filled while creating the image handle
-    VkImage                 ImageHandle;
-    VkMemoryRequirements    MemoryRequirements;
-    VkMemoryPropertyFlags   MemoryFlags;
-    //the fields below are only filled while allocating and binding the image to memory
-    VkDeviceSize            OffsetInMemoryInBytes;
-    VkDeviceMemory          Memory;
-};
-
-struct engBufferHandle{
-    //this field must be filled before buffer handle creation
-    VkDeviceSize            ContentSizeInBytes;
-    //the fields below are while creating the buffer handle
-    VkBuffer                BufferHandle;
-    VkBufferUsageFlags      BufferUsageFlags;
-    VkMemoryRequirements    MemoryRequirements;
-    VkMemoryPropertyFlags   MemoryFlags;
-    //the fields below are only filled while allocating and binding the buffer to memory
-    VkDeviceSize            OffsetInMemoryInBytes;
-    VkDeviceMemory          Memory;
-};
 
 
-
-DlTypedef_plain(bufferHandle,struct engBufferHandle)
-DlTypedef_plain(TextureHandle,struct engTextureHandle)
-
-struct eng3dObject{
-    struct DataFromDae       daeData;
-
-    Dl_bufferHandle*         VertexBufferHandleDlP;   //the Buffers of all 3D objects are stored here, use VertexBufferHandleIdx to get the correct one
-    size_t                   VertexBufferHandleIdx;   //dereference VertexBufferHandleDlP->items at this index to get the correct vertex buffer handle for this object
-
-    VkDeviceSize             PosNormUvInBufOffset;
-    VkDeviceSize             IdxInBufOffset;
-    uint32_t                 vertexCount;
-};
-DlTypedef_plain(eng3dObj,struct eng3dObject);
-
-struct engExtensionsAndLayers{
-    uint32_t    InstExtensionCount;
-    char**      InstExtensionNamesPP;
-    uint32_t    InstLayerCount;
-    char**      InstLayerNamesPP;
-
-    uint32_t    DevExtensionCount;
-    char**      DevExtensionNamesPP;
-    uint32_t    DevLayerCount;
-    char**      DevLayerNamesPP;
-};
-
-struct VulkanRuntimeInfo{
-    GLFWwindow* mainWindowP;
-    VkDevice device;
-    VkPhysicalDevice* physAvailDevicesP;
-    uint32_t physDeviceCount;
-    VkPhysicalDevice physSelectedDevice;
-
-    VkInstance instance;
-    struct engExtensionsAndLayers _engExtAndLayers;
-
-    uint32_t graphics_queue_family_idx;
-    VkQueue  graphics_queue;
-
-    VkSurfaceKHR        surface;
-
-    VkSwapchainKHR      swapChain;
-    uint32_t            imagesInFlightCount;
-    VkImage*            swapChainImagesP;
-    VkExtent2D          swapChainImageExtent;
-    VkSurfaceFormatKHR  swapChainFormat;
-    VkImageView*        swapChainImageViewsP;
-
-    VkRenderPass renderPass;
-
-    VkShaderModule VertexShaderModule;
-    VkShaderModule FragmentShaderModule;
-
-    VkPipeline       graphicsPipeline;
-    VkPipelineLayout graphicsPipelineLayout;
-
-    VkFramebuffer* FramebufferP;
-
-    VkCommandBuffer* CommandbufferP;
-
-    VkCommandPool commandPool;
-    VkCommandBuffer primaryCommandBuffer;
-
-    VkDescriptorPool descriptorPool;
-    VkDescriptorSet* descriptorSetsP;
-    VkDescriptorSetLayout* descriptorSetLayoutP;
-
-    VkSemaphore* imageAvailableSemaphoreP;
-    VkSemaphore* renderFinishedSemaphoreP;
-    VkFence*     ImageAlreadyProcessingFenceP;
-
-    struct engBufferHandle FastUpdatingUniformBuffer;
-    struct engBufferHandle DeviceVertexBuffer;
-};
 
 Dl_eng3dObj* scene1ObjectsDlP;
 
@@ -224,102 +107,11 @@ void eng_createShaderModule(struct VulkanRuntimeInfo* vkRuntimeInfoP,char* Shade
     //shaderc_result_release(compResultVertex);
     //shaderc_result_release(compResultFragment);
 }
-
-
-
-
-
-//ToDo do actual memory usage calculations for each heap
-int32_t _eng_Memory_findBestType(struct VulkanRuntimeInfo* vkRuntimeInfoP,uint32_t supportedMemTypes,VkMemoryPropertyFlags reqProp, VkMemoryPropertyFlags uprankProp, VkMemoryPropertyFlags downrankProp,VkMemoryPropertyFlags* ReturnPropP, VkDeviceSize minsize){
-    //Get information about all available memory types
-    VkPhysicalDeviceMemoryProperties DeviceMemProperties;
-    vkGetPhysicalDeviceMemoryProperties(vkRuntimeInfoP->physSelectedDevice,&DeviceMemProperties);
-    int32_t bestRankingMemoryTypeIdx=-1;
-    uint32_t bestRanking=0;
-    for(uint32_t MemoryTypeIdx=0;MemoryTypeIdx<DeviceMemProperties.memoryTypeCount;MemoryTypeIdx++){
-        uint32_t currentRank=1+sizeof(uint32_t)*4;
-        //Check if memory has the required size
-        uint32_t CurrentMemoryTypeHeapIdx=DeviceMemProperties.memoryTypes[MemoryTypeIdx].heapIndex;
-        if(DeviceMemProperties.memoryHeaps[CurrentMemoryTypeHeapIdx].size<minsize){
-            continue;
-        }
-        //Check if memory is has any forbiddenProperty set
-        uint32_t MemoryTypeBit=(1<<MemoryTypeIdx);
-        if(!(MemoryTypeBit&supportedMemTypes)){
-            continue;
-        }
-        //Check if memory has all requiriedProperty bits set
-        if((DeviceMemProperties.memoryTypes[MemoryTypeIdx].propertyFlags&reqProp)!=reqProp){
-            continue;
-        }
-
-        currentRank+=countBitsInUint32(DeviceMemProperties.memoryTypes[MemoryTypeIdx].propertyFlags&uprankProp);      //Uprank memory that has VkMemoryPropertyFlags uprankProp set
-        currentRank-=countBitsInUint32(DeviceMemProperties.memoryTypes[MemoryTypeIdx].propertyFlags&downrankProp);
-        if(currentRank>bestRanking){
-            bestRanking=currentRank;
-            bestRankingMemoryTypeIdx=(int32_t)MemoryTypeIdx;//we don't expect memory types over 2^31, so use the extra bit for error handling
-            if(ReturnPropP){
-                *ReturnPropP=DeviceMemProperties.memoryTypes[MemoryTypeIdx].propertyFlags;
-            }
-        }
-    }
-    if(!bestRanking){
-        dprintf(DBGT_ERROR,"No suitable memory type found");
-        exit(1);
-    }
-    return bestRankingMemoryTypeIdx;
-}
-
-void _eng_Buffers_createHandle(struct VulkanRuntimeInfo* vkRuntimeInfoP, Dl_bufferHandle* BuffersWithFilledInitDlP){
-    for(size_t bufferIdx=0; bufferIdx<BuffersWithFilledInitDlP->itemcnt;bufferIdx++){
-        VkBufferCreateInfo BufferCreateInfo={0};
-        BufferCreateInfo.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        BufferCreateInfo.queueFamilyIndexCount=1;
-        BufferCreateInfo.pQueueFamilyIndices=&(vkRuntimeInfoP->graphics_queue_family_idx);
-        BufferCreateInfo.sharingMode=VK_SHARING_MODE_EXCLUSIVE;
-        BufferCreateInfo.usage=BuffersWithFilledInitDlP->items[bufferIdx].BufferUsageFlags;
-        BufferCreateInfo.size=BuffersWithFilledInitDlP->items[bufferIdx].ContentSizeInBytes;
-        CHK_VK(vkCreateBuffer(vkRuntimeInfoP->device,&BufferCreateInfo,NULL,&(BuffersWithFilledInitDlP->items[bufferIdx].BufferHandle)));
-        vkGetBufferMemoryRequirements(vkRuntimeInfoP->device,
-                                      BuffersWithFilledInitDlP->items[bufferIdx].BufferHandle,
-                                      &(BuffersWithFilledInitDlP->items[bufferIdx].MemoryRequirements));
-    }
-}
-
-void _eng_ImageTextures_createHandle(struct VulkanRuntimeInfo* vkRuntimeInfoP,Dl_TextureHandle* TexturesWithFilledInitDlP){
-    for(size_t textureIdx=0; textureIdx<TexturesWithFilledInitDlP->itemcnt;textureIdx++){
-        VkImageCreateInfo ImageInfo={0};
-        ImageInfo.sType=VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        ImageInfo.arrayLayers=1;
-        ImageInfo.extent=TexturesWithFilledInitDlP->items[textureIdx].ContentExtentInPx;
-        ImageInfo.format=TexturesWithFilledInitDlP->items[textureIdx].format;
-        ImageInfo.imageType=VK_IMAGE_TYPE_2D;
-        ImageInfo.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
-        ImageInfo.mipLevels=1;
-        ImageInfo.queueFamilyIndexCount=1;
-        ImageInfo.pQueueFamilyIndices=&(vkRuntimeInfoP->graphics_queue_family_idx);
-        ImageInfo.samples=VK_SAMPLE_COUNT_1_BIT;
-        ImageInfo.sharingMode=VK_SHARING_MODE_EXCLUSIVE;
-        ImageInfo.tiling=TexturesWithFilledInitDlP->items[textureIdx].tiling;
-        ImageInfo.usage=TexturesWithFilledInitDlP->items[textureIdx].usage;
-        vkCreateImage(vkRuntimeInfoP->device,&ImageInfo,NULL,&(TexturesWithFilledInitDlP->items[textureIdx].ImageHandle));
-        vkGetImageMemoryRequirements(vkRuntimeInfoP->device,
-                                     TexturesWithFilledInitDlP->items[textureIdx].ImageHandle,
-                                     &(TexturesWithFilledInitDlP->items[textureIdx].MemoryRequirements));
-    }
-}
-
-void _eng_Memory_allocate(struct VulkanRuntimeInfo* vkRuntimeInfoP,VkDeviceMemory* VertexDeviceMemoryP,VkDeviceSize VertexMemoryAllocationSize,uint32_t MemoryTypeIdx){
-    //Allocate Memory for host local buffer
-    //TODO log allocations and let findBestBuffer know how much memory is already used
-    VkMemoryAllocateInfo UniformBufferAllocateInfo={0};
-    UniformBufferAllocateInfo.sType             =VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    UniformBufferAllocateInfo.allocationSize    =VertexMemoryAllocationSize;
-    UniformBufferAllocateInfo.memoryTypeIndex   =MemoryTypeIdx;
-    CHK_VK(vkAllocateMemory(vkRuntimeInfoP->device,&UniformBufferAllocateInfo,NULL,VertexDeviceMemoryP));
-}
-
+/*
 void _eng_DynamicUnifBuf_allocateAndBind(struct VulkanRuntimeInfo* vkRuntimeInfoP, struct engBufferHandle* BufferWithSpecifiedSizeP){
+
+    eng_AllocBlock_createHandlesAndGetMemReq()
+
     //Create handle for new uniform buffer
     VkBufferCreateInfo UniformBufferCreateInfo={0};
     UniformBufferCreateInfo.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -345,7 +137,7 @@ void _eng_DynamicUnifBuf_allocateAndBind(struct VulkanRuntimeInfo* vkRuntimeInfo
     uint32_t bestMemoryTypeIdx=_eng_Memory_findBestType(vkRuntimeInfoP,
                                 UniformBufferMemoryRequirements.memoryTypeBits,
                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, //Memory needs to be Host visible
-                                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT|VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                                 VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
                                 &(BufferWithSpecifiedSizeP->MemoryFlags),
                                 UniformBufferMemorySizeWithPadding);
@@ -356,7 +148,7 @@ void _eng_DynamicUnifBuf_allocateAndBind(struct VulkanRuntimeInfo* vkRuntimeInfo
     //Bind the buffer handle to memory
     CHK_VK(vkBindBufferMemory(vkRuntimeInfoP->device,BufferWithSpecifiedSizeP->BufferHandle,BufferWithSpecifiedSizeP->Memory,0));
 }
-
+*/
 
 
 struct formatAndReaderArgument{
@@ -407,182 +199,234 @@ struct formatAndReaderArgument _eng_getSupported2DImageFormats(struct VulkanRunt
     dprintf(DBGT_ERROR,"No supported Image Format found");
     exit(1);
 }
-VkDeviceSize _eng_alignAndGetRequiredMemorySizeForBuffer(Dl_bufferHandle* allBuffersHandleDlP){
-    VkDeviceSize TotalBufferSize=0;
-    for(size_t bufferIdx=0;bufferIdx<allBuffersHandleDlP->itemcnt;bufferIdx++){
-        //align the start of the buffer
-        VkDeviceSize BufferMemoryAlignment=allBuffersHandleDlP->items[bufferIdx].MemoryRequirements.alignment;
-        VkDeviceSize LastBufferAlignmentOvershoot=TotalBufferSize%BufferMemoryAlignment;
-        if(LastBufferAlignmentOvershoot){
-            TotalBufferSize+=BufferMemoryAlignment-LastBufferAlignmentOvershoot;
-        }
-        //store the memory offset of the buffer inside the potentially allocated memory block
-        allBuffersHandleDlP->items[bufferIdx].OffsetInMemoryInBytes=TotalBufferSize;
-        //account for the size of the object itself
-        TotalBufferSize+=allBuffersHandleDlP->items[bufferIdx].MemoryRequirements.size;
+
+
+void _eng_setAccMasksAndTransImgLayout(struct VulkanRuntimeInfo* vkRuntimeInfoP, VkCommandBuffer CommandBuffer, VkImageMemoryBarrier* imgMemBarP){
+    VkPipelineStageFlags srcStage;
+    VkPipelineStageFlags dstStage;
+    if(      imgMemBarP->oldLayout==VK_IMAGE_LAYOUT_UNDEFINED&&
+             imgMemBarP->newLayout==VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL){
+        //For getting image ready to copy staging buffer to image
+        srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        imgMemBarP->srcAccessMask=0;
+        imgMemBarP->dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;
+    }else if(imgMemBarP->oldLayout==VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL&&
+             imgMemBarP->newLayout==VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL){
+        //For getting image after it has been filled ready to be used inside the fragment shader
+        srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        imgMemBarP->srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        imgMemBarP->dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    }else{
+        dprintf(DBGT_ERROR, "image layout transition not handled");
+        exit(1);
     }
+    vkCmdPipelineBarrier(CommandBuffer, srcStage, dstStage, 0, 0, NULL, 0, NULL, 1, imgMemBarP);
 }
 
-//all buffers inside the allBuffersHandleDlP must have the same usage
-uint32_t _eng_findBestGpuMemType(struct VulkanRuntimeInfo* vkRuntimeInfoP,Dl_bufferHandle* allBuffersHandleDlP,VkDeviceSize TotalBufferSize,uint32_t* resultMemoryBitsP){
-    return _eng_Memory_findBestType(vkRuntimeInfoP,
-                                    allBuffersHandleDlP->items[0].MemoryRequirements.memoryTypeBits,    //assume all buffer items have the same memoryTypeBits
-                                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,                                //force device local
-                                    0,
-                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,                                //downrank host visible memory
-                                    resultMemoryBitsP,                                                  //to check which memory was actually assigned
-                                    TotalBufferSize);
-}
-
-uint32_t _eng_findBestCpuMemType(struct VulkanRuntimeInfo* vkRuntimeInfoP,Dl_bufferHandle* allBuffersHandleDlP,VkDeviceSize TotalBufferSize,uint32_t* resultMemoryBitsP){
-    return _eng_Memory_findBestType(vkRuntimeInfoP,
-                                    allBuffersHandleDlP->items[0].MemoryRequirements.memoryTypeBits,    //assume all buffer items have the same memoryTypeBits
-                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,                                //force device local
-                                    0,
-                                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,                                //downrank host visible memory
-                                    resultMemoryBitsP,                                                  //to check which memory was actually assigned
-                                    TotalBufferSize);
-}
-
-void _eng_bindBufferHandleToMemory(struct VulkanRuntimeInfo* vkRuntimeInfoP,Dl_bufferHandle* allBuffersHandleDlP,VkDeviceMemory Memory){
-    for(size_t bufferIdx=0;bufferIdx<allBuffersHandleDlP->itemcnt;bufferIdx++){
-        allBuffersHandleDlP->items[bufferIdx].Memory=Memory;
-        CHK_VK(vkBindBufferMemory(vkRuntimeInfoP->device,allBuffersHandleDlP->items[bufferIdx].BufferHandle,
-                                                         allBuffersHandleDlP->items[bufferIdx].Memory,
-                                                         allBuffersHandleDlP->items[bufferIdx].OffsetInMemoryInBytes));
-    }
-}
-
-void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP,Dl_modelPathAndName* modelPathAndNameDlP){
-    Dl_eng3dObj* all3dObjectsDlP=Dl_eng3dObj_alloc(modelPathAndNameDlP->itemcnt,0);
-    scene1ObjectsDlP=all3dObjectsDlP;
+void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP, Dl_modelPathAndName* modelPathAndNameDlP){
+    //Make model data accessible for outside functions
+    Dl_eng3dObj* all3dObjectsDlP = Dl_eng3dObj_alloc(modelPathAndNameDlP->itemcnt, 0);
+    scene1ObjectsDlP = all3dObjectsDlP;
 
     //check the supported image formats
     VkImageFormatProperties maximumImageProperties;
-    struct formatAndReaderArgument readerArg=_eng_getSupported2DImageFormats(vkRuntimeInfoP,NULL,&maximumImageProperties);
+    struct formatAndReaderArgument readerArg = _eng_getSupported2DImageFormats(vkRuntimeInfoP, NULL, &maximumImageProperties);
 
-    for(size_t ObjectNum=0;ObjectNum<modelPathAndNameDlP->itemcnt;ObjectNum++){
-        Dl_utf32Char* FilePathString=modelPathAndNameDlP->items[ObjectNum].pathString;
-        Dl_utf32Char* ModelNameString=modelPathAndNameDlP->items[ObjectNum].modelName;
-        dprintf(DBGT_INFO,"Itemcount of model Path %d, address of 3dobj %x",modelPathAndNameDlP->itemcnt,&(all3dObjectsDlP->items[ObjectNum].daeData));
-        daeLoader_load(FilePathString,ModelNameString,&(all3dObjectsDlP->items[ObjectNum].daeData),readerArg.readerOutputFormat,readerArg.pack32Toggle);
-        all3dObjectsDlP->items[ObjectNum].vertexCount=all3dObjectsDlP->items[ObjectNum].daeData.IndexingDlP->itemcnt;
+    for(size_t ObjectNum = 0; ObjectNum < modelPathAndNameDlP->itemcnt; ObjectNum++){
+        Dl_utf32Char* FilePathString  = modelPathAndNameDlP->items[ObjectNum].pathString;
+        Dl_utf32Char* ModelNameString = modelPathAndNameDlP->items[ObjectNum].modelName;
+        dprintf(DBGT_INFO, "Itemcount of model Path %d, address of 3dobj %x", modelPathAndNameDlP->itemcnt, &(all3dObjectsDlP->items[ObjectNum].daeData));
+        daeLoader_load(FilePathString, ModelNameString, &(all3dObjectsDlP->items[ObjectNum].daeData), readerArg.readerOutputFormat, readerArg.pack32Toggle);
+        all3dObjectsDlP->items[ObjectNum].vertexCount = all3dObjectsDlP->items[ObjectNum].daeData.IndexingDlP->itemcnt;
     }
 
-    //Get size requirements for gpu side buffers for images
-    Dl_bufferHandle* gpuBuffHandleDlP=Dl_bufferHandle_alloc(all3dObjectsDlP->itemcnt,0);
-    Dl_TextureHandle* gpuTextureHandleDlP=Dl_TextureHandle_alloc(all3dObjectsDlP->itemcnt,0);
-    VkDeviceSize TotalGpuBufferImgMemory=0;
-    for(size_t ObjectNum=0;ObjectNum<all3dObjectsDlP->itemcnt;ObjectNum++){
-        struct eng3dObject* current3dObjectP=&(all3dObjectsDlP->items[ObjectNum]);
+    //
+    //  Create Textures
+    //
+    struct eng_AllocBlock TexAllocBlock = {0};
+    TexAllocBlock.TexAllocInfoDlP = Dl_PerTexAllocInfo_alloc(all3dObjectsDlP->itemcnt, NULL);
+    struct eng_AllocBlock TexBufStagingAllocBlock = {0};
+    TexBufStagingAllocBlock.BufAllocInfoDlP = Dl_PerBufAllocInfo_alloc(all3dObjectsDlP->itemcnt, NULL);
+
+    //fill in fields
+    for(size_t ObjectNum = 0; ObjectNum < all3dObjectsDlP->itemcnt; ObjectNum++){
+        struct eng3dObject* current3dObjectP = &(all3dObjectsDlP->items[ObjectNum]);
         if(current3dObjectP->daeData.DiffuseTexture.dataP){
-            VkDeviceSize imageContentSize=4*current3dObjectP->daeData.DiffuseTexture.width*current3dObjectP->daeData.DiffuseTexture.height;
-            gpuBuffHandleDlP->items[ObjectNum].ContentSizeInBytes=imageContentSize;
-            gpuBuffHandleDlP->items[ObjectNum].BufferUsageFlags=VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+            //fill in fields to generate buffer handles
+            struct eng_PerBufAllocInfo* CurrentBufAllocInfoP = &(TexBufStagingAllocBlock.BufAllocInfoDlP->items[ObjectNum]);
+            VkDeviceSize imageContentSize = 4 * current3dObjectP->daeData.DiffuseTexture.width * current3dObjectP->daeData.DiffuseTexture.height;
+            CurrentBufAllocInfoP->initContentSizeInBytes       = imageContentSize;
+            CurrentBufAllocInfoP->initUsage                    = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 
             //fill in fields to generate texture handles
-            gpuTextureHandleDlP->items[ObjectNum].format=readerArg.imageFormat;
-            gpuTextureHandleDlP->items[ObjectNum].tiling=VK_IMAGE_TILING_OPTIMAL;
-            gpuTextureHandleDlP->items[ObjectNum].ContentExtentInPx.depth=1;
-            gpuTextureHandleDlP->items[ObjectNum].ContentExtentInPx.width=current3dObjectP->daeData.DiffuseTexture.width;
-            gpuTextureHandleDlP->items[ObjectNum].ContentExtentInPx.height=current3dObjectP->daeData.DiffuseTexture.height;
-            gpuTextureHandleDlP->items[ObjectNum].usage=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+            struct eng_PerTexAllocInfo* CurrentTexAllocInfoP=&(TexAllocBlock.TexAllocInfoDlP->items[ObjectNum]);
+            CurrentTexAllocInfoP->initFormat                   = readerArg.imageFormat;
+            CurrentTexAllocInfoP->initTiling                   = VK_IMAGE_TILING_OPTIMAL;
+            CurrentTexAllocInfoP->initContentExtentInPx.depth  = 1;
+            CurrentTexAllocInfoP->initContentExtentInPx.width  = current3dObjectP->daeData.DiffuseTexture.width;
+            CurrentTexAllocInfoP->initContentExtentInPx.height = current3dObjectP->daeData.DiffuseTexture.height;
+            CurrentTexAllocInfoP->initUsage                    = VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         }else{
 
         }
     }
-    _eng_Buffers_createHandle(vkRuntimeInfoP,gpuBuffHandleDlP);
-    _eng_ImageTextures_createHandle(vkRuntimeInfoP,gpuTextureHandleDlP);
-    TotalGpuBufferImgMemory=_eng_alignAndGetRequiredMemorySizeForBuffer(gpuBuffHandleDlP);
-    //Find the fastest GPU side memory, while checking for unified memory
 
-    //Get size requirement for gpu side vertex buffer
-    Dl_bufferHandle* gpuVertBufHandlesDlP=Dl_bufferHandle_alloc(all3dObjectsDlP->itemcnt,0);
-
-    for(size_t ObjectNum=0;ObjectNum<all3dObjectsDlP->itemcnt;ObjectNum++){
-        struct eng3dObject* current3dObjectP=&(all3dObjectsDlP->items[ObjectNum]);
-        current3dObjectP->PosNormUvInBufOffset=0;
-        current3dObjectP->IdxInBufOffset=current3dObjectP->daeData.CombinedPsNrUvDlP->itemcnt*sizeof(float);
-        current3dObjectP->VertexBufferHandleDlP=gpuVertBufHandlesDlP;
-        current3dObjectP->VertexBufferHandleIdx=ObjectNum;
-
-        gpuVertBufHandlesDlP->items[ObjectNum].ContentSizeInBytes=
-             (current3dObjectP->daeData.CombinedPsNrUvDlP->itemcnt*sizeof(float))
-            +(current3dObjectP->daeData.IndexingDlP->itemcnt*sizeof(uint32_t));
-
-        gpuVertBufHandlesDlP->items[ObjectNum].BufferUsageFlags=VK_BUFFER_USAGE_INDEX_BUFFER_BIT|
-                                                                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|
-                                                                VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT|
-                                                                VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    //create images for textures
+    eng_AllocBlock_createHandlesAndGetMemReq (vkRuntimeInfoP, &TexAllocBlock);
+    eng_AllocBlock_alignAndCalcSizeAndOffsets(vkRuntimeInfoP, &TexAllocBlock);
+    uint32_t resTexMemProps;
+    eng_AllocBlock_setFastDevLocalAlloc      (vkRuntimeInfoP, &TexAllocBlock, &resTexMemProps);
+    eng_AllocBlock_allocAndBindMem           (vkRuntimeInfoP, &TexAllocBlock);
+    if(resTexMemProps & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT){ //unified memory
+        dprintf(DBGT_INFO, "Image loader has detected unified memory");
     }
-    _eng_Buffers_createHandle(vkRuntimeInfoP,gpuVertBufHandlesDlP);
-    VkDeviceSize TotalGpuBuffMemory=_eng_alignAndGetRequiredMemorySizeForBuffer(gpuVertBufHandlesDlP);
 
-    //Find the fastest GPU side memory, while checking for unified memory
-    uint32_t resultVtxMemoryPropertyBits;
-    //all buffers in this memory have the same memoryType requirements, so get the memoryTypeBits from the first object's buffer
-    uint32_t GpuSideMemoryType=_eng_findBestGpuMemType(vkRuntimeInfoP,gpuVertBufHandlesDlP,TotalGpuBuffMemory,&resultVtxMemoryPropertyBits);
+    //create buffers for staging upload
+    eng_AllocBlock_createHandlesAndGetMemReq (vkRuntimeInfoP, &TexBufStagingAllocBlock);
+    eng_AllocBlock_alignAndCalcSizeAndOffsets(vkRuntimeInfoP, &TexBufStagingAllocBlock);
+    eng_AllocBlock_setStagingAlloc           (vkRuntimeInfoP, &TexBufStagingAllocBlock, NULL);
+    eng_AllocBlock_allocAndBindMem           (vkRuntimeInfoP, &TexBufStagingAllocBlock);
 
-    //allocate the GPU side memory
-    VkDeviceMemory   VtxGpuSideMemory;
-    _eng_Memory_allocate(vkRuntimeInfoP,&VtxGpuSideMemory,TotalGpuBuffMemory,GpuSideMemoryType);
+    //fill staging buffer with data
+    for(size_t ObjectNum = 0; ObjectNum < all3dObjectsDlP->itemcnt; ObjectNum++){
+        void* mappedMemoryP;
+        CHK_VK(vkMapMemory(vkRuntimeInfoP->device,
+                           TexBufStagingAllocBlock.Memory,
+                           TexBufStagingAllocBlock.BufAllocInfoDlP->items[ObjectNum].OffsetInMemoryInBytes,
+                           TexBufStagingAllocBlock.BufAllocInfoDlP->items[ObjectNum].initContentSizeInBytes,
+                           0, &mappedMemoryP));
+        memcpy(mappedMemoryP,
+               all3dObjectsDlP->items[ObjectNum].daeData.DiffuseTexture.dataP,
+               TexBufStagingAllocBlock.BufAllocInfoDlP->items[ObjectNum].initContentSizeInBytes);
+        vkUnmapMemory(vkRuntimeInfoP->device, TexBufStagingAllocBlock.Memory);
+        free(all3dObjectsDlP->items[ObjectNum].daeData.DiffuseTexture.dataP);
+    }
+
+    //Schedule upload and layout transition
+    VkCommandBuffer UploadTextureCommandBuffer = _eng_cmdBuf_startSingleUse(vkRuntimeInfoP);
+    for(size_t ObjectNum = 0; ObjectNum < all3dObjectsDlP->itemcnt; ObjectNum++){
+        //transform image to optimally writable layout
+        struct VkImageMemoryBarrier imgMakeWriteDstBarrier = {0};
+        imgMakeWriteDstBarrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        imgMakeWriteDstBarrier.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+        imgMakeWriteDstBarrier.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        imgMakeWriteDstBarrier.image               = TexAllocBlock.TexAllocInfoDlP->items[ObjectNum].ImageHandle;
+        imgMakeWriteDstBarrier.dstQueueFamilyIndex = vkRuntimeInfoP->graphics_queue_family_idx;
+        imgMakeWriteDstBarrier.srcQueueFamilyIndex = vkRuntimeInfoP->graphics_queue_family_idx;
+        imgMakeWriteDstBarrier.subresourceRange.layerCount = 1;
+        imgMakeWriteDstBarrier.subresourceRange.levelCount = 1;
+        imgMakeWriteDstBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        _eng_setAccMasksAndTransImgLayout(vkRuntimeInfoP, UploadTextureCommandBuffer, &imgMakeWriteDstBarrier);
+
+        //copy buffer to image
+        VkBufferImageCopy copyRegion = {0};
+        copyRegion.imageExtent                 = TexAllocBlock.TexAllocInfoDlP->items[ObjectNum].initContentExtentInPx;
+        copyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        copyRegion.imageSubresource.layerCount = 1;
+        vkCmdCopyBufferToImage(UploadTextureCommandBuffer,
+                               TexBufStagingAllocBlock.BufAllocInfoDlP->items[ObjectNum].BufferHandle,
+                               TexAllocBlock.TexAllocInfoDlP->items[ObjectNum].ImageHandle,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               1,
+                               &copyRegion);
+
+        //transform image to an optimal read layout for the shaders
+        struct VkImageMemoryBarrier imgMakeShaderReadBarrier = {0};
+        imgMakeShaderReadBarrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        imgMakeShaderReadBarrier.oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        imgMakeShaderReadBarrier.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imgMakeShaderReadBarrier.image               = TexAllocBlock.TexAllocInfoDlP->items[ObjectNum].ImageHandle;
+        imgMakeShaderReadBarrier.dstQueueFamilyIndex = vkRuntimeInfoP->graphics_queue_family_idx;
+        imgMakeShaderReadBarrier.srcQueueFamilyIndex = vkRuntimeInfoP->graphics_queue_family_idx;
+        imgMakeShaderReadBarrier.subresourceRange.layerCount = 1;
+        imgMakeShaderReadBarrier.subresourceRange.levelCount = 1;
+        imgMakeShaderReadBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        _eng_setAccMasksAndTransImgLayout(vkRuntimeInfoP, UploadTextureCommandBuffer, &imgMakeShaderReadBarrier);
+    }
+    _eng_cmdBuf_endAndSubmitSingleUse(vkRuntimeInfoP,UploadTextureCommandBuffer);
+
+    //
+    //  Create Vertex buffers
+    //
+    struct eng_AllocBlock VtxBuffAllocBlock = {0};
+    VtxBuffAllocBlock.BufAllocInfoDlP = Dl_PerBufAllocInfo_alloc(all3dObjectsDlP->itemcnt, NULL);
+    for(size_t ObjectNum = 0; ObjectNum < all3dObjectsDlP->itemcnt; ObjectNum++){
+        struct eng3dObject* current3dObjectP = &(all3dObjectsDlP->items[ObjectNum]);
+        current3dObjectP->PosNormUvInBufOffset  = 0;
+        current3dObjectP->IdxInBufOffset        = current3dObjectP->daeData.CombinedPsNrUvDlP->itemcnt * sizeof(float);
+
+        struct eng_PerBufAllocInfo* CurrentBufAllocInfoP = &(VtxBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum]);
+        CurrentBufAllocInfoP->initContentSizeInBytes = (current3dObjectP->daeData.CombinedPsNrUvDlP->itemcnt * sizeof(float))
+                                                      +(current3dObjectP->daeData.IndexingDlP->itemcnt       * sizeof(uint32_t));
+        CurrentBufAllocInfoP->initUsage =  VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+                                         | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+                                         | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
+                                         | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    }
+    eng_AllocBlock_createHandlesAndGetMemReq  (vkRuntimeInfoP, &VtxBuffAllocBlock);
+    for(size_t ObjectNum = 0; ObjectNum < all3dObjectsDlP->itemcnt; ObjectNum++){
+        struct eng3dObject* current3dObjectP = &(all3dObjectsDlP->items[ObjectNum]);
+        current3dObjectP->vtxBufferHandle = VtxBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum].BufferHandle;
+    }
+    eng_AllocBlock_alignAndCalcSizeAndOffsets (vkRuntimeInfoP, &VtxBuffAllocBlock);
+    uint32_t resVtxBufMemProps;
+    eng_AllocBlock_setFastDevLocalAlloc       (vkRuntimeInfoP, &VtxBuffAllocBlock, &resVtxBufMemProps);
+    eng_AllocBlock_allocAndBindMem            (vkRuntimeInfoP, &VtxBuffAllocBlock);
+
+    int unifiedMemoryFlag = resVtxBufMemProps & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
 
     //handle the case where we need to create a staging buffer
-    int unifiedMemoryFlag=(resultVtxMemoryPropertyBits&VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-    Dl_bufferHandle* optVtxStagingDlP=NULL;
-    VkDeviceSize     optTotalCpuBuffMemory=0;
-    VkDeviceMemory   optCpuStagingMemory;
+    struct eng_AllocBlock optVtxStagingBuffAllocBlock = {0};
     if(!unifiedMemoryFlag){ //non unified memory detected, we need to create a separate staging buffer on the cpu side memory
-        optVtxStagingDlP=Dl_bufferHandle_alloc(all3dObjectsDlP->itemcnt,NULL);  //allocate an buffer handle for each object's vertex buffer
-        for(size_t ObjectNum=0;ObjectNum<all3dObjectsDlP->itemcnt;ObjectNum++){
-            //copy contentSize information from GPU side buffer
-            optVtxStagingDlP->items[ObjectNum].ContentSizeInBytes=gpuVertBufHandlesDlP->items[ObjectNum].ContentSizeInBytes;
-            optVtxStagingDlP->items[ObjectNum].BufferUsageFlags=VK_BUFFER_USAGE_INDEX_BUFFER_BIT|
-                                                                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|
-                                                                 VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT|
-                                                                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        optVtxStagingBuffAllocBlock.BufAllocInfoDlP = Dl_PerBufAllocInfo_alloc(all3dObjectsDlP->itemcnt, NULL);
+        //copy contentSize information from GPU side buffer
+        for(size_t ObjectNum = 0; ObjectNum < all3dObjectsDlP->itemcnt; ObjectNum++){
+            struct eng_PerBufAllocInfo* CurrentVtxBufAllocInfoP        =           &(VtxBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum]);
+            struct eng_PerBufAllocInfo* CurrentStagingVtxBufAllocInfoP = &(optVtxStagingBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum]);
+            CurrentStagingVtxBufAllocInfoP->initContentSizeInBytes = CurrentVtxBufAllocInfoP->initContentSizeInBytes;
+            CurrentStagingVtxBufAllocInfoP->initUsage              =  VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+                                                                    | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+                                                                    | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
+                                                                    | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
         }
-        _eng_Buffers_createHandle(vkRuntimeInfoP,optVtxStagingDlP);
-        optTotalCpuBuffMemory=_eng_alignAndGetRequiredMemorySizeForBuffer(optVtxStagingDlP);
-        //Allocate CPU side memory
-        uint32_t CpuSideMemoryType=_eng_findBestCpuMemType(vkRuntimeInfoP,optVtxStagingDlP,optTotalCpuBuffMemory,NULL);
-        _eng_Memory_allocate(vkRuntimeInfoP,&optCpuStagingMemory,optTotalCpuBuffMemory,CpuSideMemoryType);
-    }
-
-    //bind buffers
-    _eng_bindBufferHandleToMemory(vkRuntimeInfoP,gpuVertBufHandlesDlP,VtxGpuSideMemory);
-    //Bind optional staging buffer
-    if(!unifiedMemoryFlag){
-        _eng_bindBufferHandleToMemory(vkRuntimeInfoP,optVtxStagingDlP,optCpuStagingMemory);
+        eng_AllocBlock_createHandlesAndGetMemReq  (vkRuntimeInfoP, &optVtxStagingBuffAllocBlock);
+        eng_AllocBlock_alignAndCalcSizeAndOffsets (vkRuntimeInfoP, &optVtxStagingBuffAllocBlock);
+        eng_AllocBlock_setStagingAlloc            (vkRuntimeInfoP, &optVtxStagingBuffAllocBlock, NULL);
+        eng_AllocBlock_allocAndBindMem            (vkRuntimeInfoP, &optVtxStagingBuffAllocBlock);
     }
 
     //Move data into Staging buffer or if unified architecture into GPU buffer
-    for(size_t ObjectNum=0;ObjectNum<all3dObjectsDlP->itemcnt;ObjectNum++){
-        //Bind Memory To Buffers
+    for(size_t ObjectNum=0; ObjectNum < all3dObjectsDlP->itemcnt; ObjectNum++){
+        //map memory
         void* mappedMemoryP;
-        //map object buffer
         if(!unifiedMemoryFlag){
-            CHK_VK(vkMapMemory(vkRuntimeInfoP->device,optVtxStagingDlP->items[ObjectNum].Memory,
-                               optVtxStagingDlP->items[ObjectNum].OffsetInMemoryInBytes,
-                               optVtxStagingDlP->items[ObjectNum].ContentSizeInBytes,0,&mappedMemoryP));
+            CHK_VK(vkMapMemory(vkRuntimeInfoP->device,
+                               optVtxStagingBuffAllocBlock.Memory,
+                               optVtxStagingBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum].OffsetInMemoryInBytes,
+                               optVtxStagingBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum].initContentSizeInBytes,
+                               0, &mappedMemoryP));
         }else{
-            CHK_VK(vkMapMemory(vkRuntimeInfoP->device,gpuVertBufHandlesDlP->items[ObjectNum].Memory,
-                               gpuVertBufHandlesDlP->items[ObjectNum].OffsetInMemoryInBytes,
-                               gpuVertBufHandlesDlP->items[ObjectNum].ContentSizeInBytes,0,&mappedMemoryP));
+            CHK_VK(vkMapMemory(vkRuntimeInfoP->device,
+                               VtxBuffAllocBlock.Memory,
+                               VtxBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum].OffsetInMemoryInBytes,
+                               VtxBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum].initContentSizeInBytes,
+                               0, &mappedMemoryP));
         }
 
         //copy position,normal,uv data
-        memcpy(((char*)mappedMemoryP)+all3dObjectsDlP->items[ObjectNum].PosNormUvInBufOffset,
+        memcpy(((char*)mappedMemoryP) + all3dObjectsDlP->items[ObjectNum].PosNormUvInBufOffset,
                all3dObjectsDlP->items[ObjectNum].daeData.CombinedPsNrUvDlP->items,
-               all3dObjectsDlP->items[ObjectNum].daeData.CombinedPsNrUvDlP->itemcnt*sizeof(float));
+               all3dObjectsDlP->items[ObjectNum].daeData.CombinedPsNrUvDlP->itemcnt * sizeof(float));
         //copy combined index
-        memcpy(((char*)mappedMemoryP)+all3dObjectsDlP->items[ObjectNum].IdxInBufOffset,
+        memcpy(((char*)mappedMemoryP) + all3dObjectsDlP->items[ObjectNum].IdxInBufOffset,
                all3dObjectsDlP->items[ObjectNum].daeData.IndexingDlP->items,
-               all3dObjectsDlP->items[ObjectNum].daeData.IndexingDlP->itemcnt*sizeof(uint32_t));
+               all3dObjectsDlP->items[ObjectNum].daeData.IndexingDlP->itemcnt * sizeof(uint32_t));
         if(!unifiedMemoryFlag){
-            vkUnmapMemory(vkRuntimeInfoP->device,optVtxStagingDlP->items[ObjectNum].Memory);
+            vkUnmapMemory(vkRuntimeInfoP->device, optVtxStagingBuffAllocBlock.Memory);
         }else{
-            vkUnmapMemory(vkRuntimeInfoP->device,gpuVertBufHandlesDlP->items[ObjectNum].Memory);
+            vkUnmapMemory(vkRuntimeInfoP->device, VtxBuffAllocBlock.Memory);
         }
 
         Dl_float_delete(all3dObjectsDlP->items[ObjectNum].daeData.CombinedPsNrUvDlP);
@@ -591,30 +435,45 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP,Dl_modelPat
 
     if(!unifiedMemoryFlag){
         //schedule upload from Cpu to Gpu side
-        VkCommandBuffer UploadCommandBuffer=_eng_cmdBuf_startSingleUse(vkRuntimeInfoP);
+        VkCommandBuffer UploadCommandBuffer = _eng_cmdBuf_startSingleUse(vkRuntimeInfoP);
         //copy command for every object
-        VkBufferCopy copyRegion={0};
-        for(size_t ObjectNum=0;ObjectNum<optVtxStagingDlP->itemcnt;ObjectNum++){
-            copyRegion.size=optVtxStagingDlP->items[ObjectNum].ContentSizeInBytes;
-            vkCmdCopyBuffer(UploadCommandBuffer,optVtxStagingDlP->items[ObjectNum].BufferHandle,
-                                                gpuVertBufHandlesDlP->items[ObjectNum].BufferHandle,1,&copyRegion);
+        VkBufferCopy copyRegion = {0};
+        for(size_t ObjectNum = 0; ObjectNum < optVtxStagingBuffAllocBlock.BufAllocInfoDlP->itemcnt; ObjectNum++){
+            copyRegion.size = optVtxStagingBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum].initContentSizeInBytes;
+            vkCmdCopyBuffer(UploadCommandBuffer,
+                            optVtxStagingBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum].BufferHandle,
+                            VtxBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum].BufferHandle,
+                            1, &copyRegion);
         }
         //end recording and submit
-        _eng_cmdBuf_endAndSubmitSingleUse(vkRuntimeInfoP,UploadCommandBuffer);
+        _eng_cmdBuf_endAndSubmitSingleUse(vkRuntimeInfoP, UploadCommandBuffer);
     }
+
+    //
+    //  Create Uniform buffers
+    //
 
     //Setup Uniform Buffer, no upload needed
     //ToDo support per object mvp matrices
-    vkRuntimeInfoP->FastUpdatingUniformBuffer.ContentSizeInBytes=sizeof(mat4x4)*vkRuntimeInfoP->imagesInFlightCount;
-    _eng_DynamicUnifBuf_allocateAndBind(vkRuntimeInfoP,&(vkRuntimeInfoP->FastUpdatingUniformBuffer));
+    vkRuntimeInfoP->FastUpdateUniformAllocP = (struct eng_AllocBlock*)malloc(sizeof(struct eng_AllocBlock));
+    memset(vkRuntimeInfoP->FastUpdateUniformAllocP, 0, sizeof(struct eng_AllocBlock));
+    vkRuntimeInfoP->FastUpdateUniformAllocP->BufAllocInfoDlP = Dl_PerBufAllocInfo_alloc(1,NULL);
+    vkRuntimeInfoP->FastUpdateUniformAllocP->BufAllocInfoDlP->items[0].initContentSizeInBytes = sizeof(mat4x4) * vkRuntimeInfoP->imagesInFlightCount;
+    vkRuntimeInfoP->FastUpdateUniformAllocP->BufAllocInfoDlP->items[0].initUsage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    eng_AllocBlock_createHandlesAndGetMemReq  (vkRuntimeInfoP, vkRuntimeInfoP->FastUpdateUniformAllocP);
+    eng_AllocBlock_alignAndCalcSizeAndOffsets (vkRuntimeInfoP, vkRuntimeInfoP->FastUpdateUniformAllocP);
+    eng_AllocBlock_setUniformAlloc            (vkRuntimeInfoP, vkRuntimeInfoP->FastUpdateUniformAllocP, NULL);
+    eng_AllocBlock_allocAndBindMem            (vkRuntimeInfoP, vkRuntimeInfoP->FastUpdateUniformAllocP);
 
     //Cleanup
     if(!unifiedMemoryFlag){
-        for(size_t ObjectNum=0;ObjectNum<optVtxStagingDlP->itemcnt;ObjectNum++){
-            vkDestroyBuffer(vkRuntimeInfoP->device,optVtxStagingDlP->items[ObjectNum].BufferHandle,NULL);
+        for(size_t ObjectNum = 0; ObjectNum < optVtxStagingBuffAllocBlock.BufAllocInfoDlP->itemcnt; ObjectNum++){
+            vkDestroyBuffer(vkRuntimeInfoP->device, optVtxStagingBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum].BufferHandle, NULL);
+            vkDestroyBuffer(vkRuntimeInfoP->device, TexBufStagingAllocBlock.BufAllocInfoDlP->items[ObjectNum].BufferHandle, NULL);
         }
-        vkFreeMemory(vkRuntimeInfoP->device,optCpuStagingMemory,NULL);
-        Dl_bufferHandle_delete(optVtxStagingDlP);
+        vkFreeMemory(vkRuntimeInfoP->device, optVtxStagingBuffAllocBlock.Memory, NULL);
+        vkFreeMemory(vkRuntimeInfoP->device, TexBufStagingAllocBlock.Memory, NULL);
+        Dl_PerBufAllocInfo_delete(optVtxStagingBuffAllocBlock.BufAllocInfoDlP);
     }
 }
 
@@ -997,6 +856,10 @@ void eng_createDevice(struct VulkanRuntimeInfo* vkRuntimeInfoP,uint8_t* deviceRa
 
     //Get handle for graphics queue
     vkGetDeviceQueue(vkRuntimeInfoP->device,vkRuntimeInfoP->graphics_queue_family_idx,0,&vkRuntimeInfoP->graphics_queue);
+
+    //Get physicalDeviceLimits
+    vkRuntimeInfoP->PhysDevPropP=(VkPhysicalDeviceProperties*)malloc(sizeof(VkPhysicalDeviceProperties));
+    vkGetPhysicalDeviceProperties(vkRuntimeInfoP->physSelectedDevice,vkRuntimeInfoP->PhysDevPropP);
 }
 
 void eng_createCommandPool(struct VulkanRuntimeInfo* vkRuntimeInfoP){
@@ -1058,11 +921,11 @@ void cleanup(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     glfwTerminate();
 }
 
-void eng_createSurface(struct VulkanRuntimeInfo* vkRuntimeInfoP,GLFWwindow* glfwWindowP){
-    CHK_VK(glfwCreateWindowSurface(vkRuntimeInfoP->instance,glfwWindowP,NULL,&vkRuntimeInfoP->surface));
+void eng_createSurface(struct VulkanRuntimeInfo* vkRuntimeInfoP){
+    CHK_VK(glfwCreateWindowSurface(vkRuntimeInfoP->instance,vkRuntimeInfoP->mainWindowP,NULL,&vkRuntimeInfoP->surface));
 }
 
-void eng_createSwapChain(struct VulkanRuntimeInfo* vkRuntimeInfoP,GLFWwindow* glfwWindowP){
+void eng_createSwapChain(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     VkBool32 surfaceSupport=VK_TRUE;
     CHK_VK(vkGetPhysicalDeviceSurfaceSupportKHR(vkRuntimeInfoP->physSelectedDevice,vkRuntimeInfoP->graphics_queue_family_idx,vkRuntimeInfoP->surface,&surfaceSupport));
     CHK_VK(surfaceSupport!=VK_TRUE);
@@ -1108,7 +971,7 @@ void eng_createSwapChain(struct VulkanRuntimeInfo* vkRuntimeInfoP,GLFWwindow* gl
 
     int32_t glfw_height;
     int32_t glfw_width;
-    glfwGetFramebufferSize(glfwWindowP,&glfw_height,&glfw_width);
+    glfwGetFramebufferSize(vkRuntimeInfoP->mainWindowP,&glfw_height,&glfw_width);
     (vkRuntimeInfoP->swapChainImageExtent).height=clamp_uint32(surfaceCapabilities.minImageExtent.height,(uint32_t)glfw_height,surfaceCapabilities.maxImageExtent.height);
     (vkRuntimeInfoP->swapChainImageExtent).width=clamp_uint32(surfaceCapabilities.minImageExtent.width,(uint32_t)glfw_width,surfaceCapabilities.maxImageExtent.width);
 
@@ -1137,26 +1000,26 @@ void eng_createSwapChain(struct VulkanRuntimeInfo* vkRuntimeInfoP,GLFWwindow* gl
 }
 
 void eng_createImageViews(struct VulkanRuntimeInfo* vkRuntimeInfoP){
-    vkRuntimeInfoP->swapChainImageViewsP=(VkImageView*)malloc(vkRuntimeInfoP->imagesInFlightCount*sizeof(VkImageView));
-    for(uint32_t imageIndex=0;imageIndex<vkRuntimeInfoP->imagesInFlightCount;imageIndex++){
+    vkRuntimeInfoP->swapChainImageViewsP = (VkImageView*)malloc(vkRuntimeInfoP->imagesInFlightCount * sizeof(VkImageView));
+    for(uint32_t imageIndex = 0; imageIndex < vkRuntimeInfoP->imagesInFlightCount; imageIndex++){
         VkImageViewCreateInfo imageViewCreateInfo;
-        imageViewCreateInfo.sType=VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        imageViewCreateInfo.pNext=NULL;
-        imageViewCreateInfo.flags=0;
-        imageViewCreateInfo.components.r=VK_COMPONENT_SWIZZLE_IDENTITY;
-        imageViewCreateInfo.components.g=VK_COMPONENT_SWIZZLE_IDENTITY;
-        imageViewCreateInfo.components.b=VK_COMPONENT_SWIZZLE_IDENTITY;
-        imageViewCreateInfo.components.a=VK_COMPONENT_SWIZZLE_IDENTITY;
-        imageViewCreateInfo.format=(vkRuntimeInfoP->swapChainFormat).format;
-        imageViewCreateInfo.subresourceRange.layerCount=1;
-        imageViewCreateInfo.subresourceRange.baseArrayLayer=0;
-        imageViewCreateInfo.subresourceRange.baseMipLevel=0;
-        imageViewCreateInfo.subresourceRange.levelCount=1;
-        imageViewCreateInfo.subresourceRange.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
-        imageViewCreateInfo.viewType=VK_IMAGE_VIEW_TYPE_2D;
-        imageViewCreateInfo.image=(vkRuntimeInfoP->swapChainImagesP)[imageIndex];
+        imageViewCreateInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        imageViewCreateInfo.pNext                           = NULL;
+        imageViewCreateInfo.flags                           = 0;
+        imageViewCreateInfo.components.r                    = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCreateInfo.components.g                    = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCreateInfo.components.b                    = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCreateInfo.components.a                    = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewCreateInfo.format                          = (vkRuntimeInfoP->swapChainFormat).format;
+        imageViewCreateInfo.subresourceRange.layerCount     = 1;
+        imageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
+        imageViewCreateInfo.subresourceRange.baseMipLevel   = 0;
+        imageViewCreateInfo.subresourceRange.levelCount     = 1;
+        imageViewCreateInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageViewCreateInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D;
+        imageViewCreateInfo.image                           = (vkRuntimeInfoP->swapChainImagesP)[imageIndex];
 
-        CHK_VK(vkCreateImageView(vkRuntimeInfoP->device,&imageViewCreateInfo,NULL,&(vkRuntimeInfoP->swapChainImageViewsP[imageIndex])));
+        CHK_VK(vkCreateImageView(vkRuntimeInfoP->device, &imageViewCreateInfo, NULL, &(vkRuntimeInfoP->swapChainImageViewsP[imageIndex])));
     }
 }
 
@@ -1443,9 +1306,8 @@ void eng_createRenderCommandBuffers(struct VulkanRuntimeInfo* vkRuntimeInfoP){
         for(size_t ObjectNum=0;ObjectNum<scene1ObjectsDlP->itemcnt;ObjectNum++){
             struct eng3dObject*  currentObjectP=&(scene1ObjectsDlP->items[ObjectNum]);
             VkDeviceSize* PNUBufferOffsetP=&(currentObjectP->PosNormUvInBufOffset);
-            VkBuffer currentVtxBuffer=(currentObjectP->VertexBufferHandleDlP->items[currentObjectP->VertexBufferHandleIdx]).BufferHandle;
-            vkCmdBindVertexBuffers(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],0,1,&currentVtxBuffer,PNUBufferOffsetP);
-            vkCmdBindIndexBuffer(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],currentVtxBuffer,currentObjectP->IdxInBufOffset,VK_INDEX_TYPE_UINT32);
+            vkCmdBindVertexBuffers(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],0,1,&(currentObjectP->vtxBufferHandle),PNUBufferOffsetP);
+            vkCmdBindIndexBuffer(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],currentObjectP->vtxBufferHandle,currentObjectP->IdxInBufOffset,VK_INDEX_TYPE_UINT32);
             vkCmdBindDescriptorSets(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],VK_PIPELINE_BIND_POINT_GRAPHICS,vkRuntimeInfoP->graphicsPipelineLayout,0,1,&(vkRuntimeInfoP->descriptorSetsP[CommandBufferIdx]),0,NULL);
             //vkCmdBindDescriptorSets(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],VK_PIPELINE_BIND_POINT_GRAPHICS,vkRuntimeInfoP->graphicsPipelineLayout,0,1,vkRuntimeInfoP->descriptorSetsP,0,NULL);
             vkCmdBindPipeline(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],VK_PIPELINE_BIND_POINT_GRAPHICS,vkRuntimeInfoP->graphicsPipeline);
@@ -1524,10 +1386,10 @@ void eng_draw(struct VulkanRuntimeInfo* vkRuntimeInfoP){
 
     //copy in buffer
     void* mappedUniformSliceP;
-    CHK_VK(vkMapMemory(vkRuntimeInfoP->device,vkRuntimeInfoP->FastUpdatingUniformBuffer.Memory,sizeof(mat4x4)*nextImageIdx,sizeof(mat4x4),0,&mappedUniformSliceP));
+    CHK_VK(vkMapMemory(vkRuntimeInfoP->device,vkRuntimeInfoP->FastUpdateUniformAllocP->Memory,sizeof(mat4x4)*nextImageIdx,sizeof(mat4x4),0,&mappedUniformSliceP));
     memcpy(mappedUniformSliceP,&(MVPMatrix[0][0]),sizeof(mat4x4));
     //TODO flush memory
-    vkUnmapMemory(vkRuntimeInfoP->device,vkRuntimeInfoP->FastUpdatingUniformBuffer.Memory);
+    vkUnmapMemory(vkRuntimeInfoP->device,vkRuntimeInfoP->FastUpdateUniformAllocP->Memory);
 
     //Get next image from swapChain
     CHK_VK(vkAcquireNextImageKHR(vkRuntimeInfoP->device,vkRuntimeInfoP->swapChain,UINT64_MAX,(vkRuntimeInfoP->imageAvailableSemaphoreP)[nextImageIdx],VK_NULL_HANDLE,&nextImageIdx));
@@ -1561,7 +1423,7 @@ void eng_writeDescriptorSets(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     for(uint32_t image=0;image<vkRuntimeInfoP->imagesInFlightCount;image++){
         //Write descriptor set
         VkDescriptorBufferInfo BufferInfo;
-        BufferInfo.buffer=vkRuntimeInfoP->FastUpdatingUniformBuffer.BufferHandle;
+        BufferInfo.buffer=vkRuntimeInfoP->FastUpdateUniformAllocP->BufAllocInfoDlP->items[0].BufferHandle;
         BufferInfo.offset=sizeof(mat4x4)*image;
         BufferInfo.range=sizeof(mat4x4);
 
@@ -1575,7 +1437,6 @@ void eng_writeDescriptorSets(struct VulkanRuntimeInfo* vkRuntimeInfoP){
         vkUpdateDescriptorSets(vkRuntimeInfoP->device,1,&WriteDescriptorSet,0,NULL);
     }
 }
-
 
 int main(int argc, char** argv){
     (void)argc; //avoid unused arguments warning
@@ -1593,7 +1454,8 @@ int main(int argc, char** argv){
     printXMLsubelements(eng_setupxmlP);
     xmlTreeElement* applicationNameXmlElmntP=getFirstSubelementWithASCII(eng_setupxmlP,"ApplicationName",NULL,NULL,xmltype_tag,1);
     char* applicationNameCharP=Dl_utf32Char_toStringAlloc(getNthChildWithType(applicationNameXmlElmntP,0,xmltype_chardata)->charData);
-    GLFWwindow* mainWindowP = glfwCreateWindow(1920, 1080, applicationNameCharP, NULL, NULL);
+    struct VulkanRuntimeInfo engVkRuntimeInfo = {0};
+    engVkRuntimeInfo.mainWindowP = glfwCreateWindow(1920, 1080, applicationNameCharP, NULL, NULL);
     free(applicationNameCharP);
 
     if(GLFW_FALSE==glfwVulkanSupported()){
@@ -1601,12 +1463,12 @@ int main(int argc, char** argv){
         exit(1);
     }
 
-    struct VulkanRuntimeInfo engVkRuntimeInfo;
+
     eng_createInstance(&engVkRuntimeInfo,eng_setupxmlP);
     uint8_t* deviceRankingP=eng_vulkan_generate_device_ranking(&engVkRuntimeInfo,eng_setupxmlP);
-    eng_createSurface(&engVkRuntimeInfo,mainWindowP);
+    eng_createSurface(&engVkRuntimeInfo);
     eng_createDevice(&engVkRuntimeInfo,deviceRankingP);
-    eng_createSwapChain(&engVkRuntimeInfo,mainWindowP);
+    eng_createSwapChain(&engVkRuntimeInfo);
     eng_createImageViews(&engVkRuntimeInfo);                                //depends on eng_createSwapChain
     eng_createShaderModule(&engVkRuntimeInfo,"./res/shader1.xml");          //depends on eng_createDevice
     eng_createRenderPass(&engVkRuntimeInfo);                                //depends on eng_createSwapChain
@@ -1625,7 +1487,7 @@ int main(int argc, char** argv){
     eng_createRenderCommandBuffers(&engVkRuntimeInfo);                      //depends on eng_createCommandPool and eng_createFramebuffers and eng_load_static_models and createPipeline
     eng_createSynchronizationPrimitives(&engVkRuntimeInfo);
     dprintf(DBGT_INFO,"Got here");
-    while (!glfwWindowShouldClose(mainWindowP)) {
+    while (!glfwWindowShouldClose(engVkRuntimeInfo.mainWindowP)) {
         eng_draw(&engVkRuntimeInfo);
         glfwPollEvents();
     }

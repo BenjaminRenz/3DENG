@@ -5,7 +5,7 @@
 
 
 //since bitmap is little endian we might need to convert it to our system's endianess
-uint32_t _bmpLoader_uint32_t_from_le_file(FILE* file, int bigEndianFlag) {
+uint32_t _bmpLoader_uint32_t_from_le_file(FILE* file, int bigEndianFlag){
     uint32_t data=0;
     if(fread(&data, 4, 1, file) != 1){
         dprintf(DBGT_ERROR,"unexpected end of bmp file while reading uint32_t");
@@ -20,7 +20,7 @@ uint32_t _bmpLoader_uint32_t_from_le_file(FILE* file, int bigEndianFlag) {
     return data;
 }
 
-uint16_t _bmpLoader_uint16_t_from_le_file(FILE* FileP, int bigEndianFlag) {
+uint16_t _bmpLoader_uint16_t_from_le_file(FILE* FileP, int bigEndianFlag){
     uint16_t data=0;
     if(fread(&data, 2, 1, FileP) != 1){
         dprintf(DBGT_ERROR,"unexpected end of bmp file while reading uint16_t");
