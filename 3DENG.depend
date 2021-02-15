@@ -1,5 +1,5 @@
 # depslib dependency file v1.0
-1613359237 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
+1613360166 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
 	<stdio.h>
 	<stdlib.h>
 	<string.h>
@@ -25,7 +25,7 @@
 
 1605580341 /stringutils.h>
 
-1613187744 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.c
+1613360208 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.c
 	"xmlReader.h"
 	<stdlib.h>
 	<string.h>
@@ -233,7 +233,7 @@
 	"debugPrint/debugPrint.h"
 	"stdlib.h"
 
-1613250433 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\bmploader\bmploader.c
+1613359639 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\bmploader\bmploader.c
 	"bmpLoader/bmpLoader.h"
 	"debugPrint/debugPrint.h"
 	<stdlib.h>

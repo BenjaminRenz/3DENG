@@ -3,7 +3,7 @@
 #include <stdint.h>
 
 
-struct TextureData{
+struct TextureData {
     uint32_t width;
     uint32_t height;
     uint32_t* dataP;
@@ -28,5 +28,5 @@ struct TextureData{
  *        The image array will always be top down, so the upper left pixel in the image will be the first one in this uint32_t array.
  *        The next pixel will be the one which is one pixel to the right in the first row.
  */
-struct TextureData bmpLoader_load(char* filepathString,char* outputFormatString,char pack32toogle);
+struct TextureData bmpLoader_load(char* filepathString, char* outputFormatString, char pack32toogle);
 #endif //BMPLOADER_H_INCLUDED
