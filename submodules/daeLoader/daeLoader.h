@@ -8,9 +8,9 @@
 struct DataFromDae {
     Dl_float* CombinedPsNrUvDlP;      //DlP of floats, in order vec3 position, padding, vec3 normal, padding, vec2 uv
     Dl_uint32* IndexingDlP;            //DlP of uint32_t
-    struct TextureData  DiffuseTexture;
-    struct TextureData  RoughnessTexture;
-    struct TextureData  NormalTexture;
+    struct ImageData DiffuseTexture;
+    struct ImageData RoughnessTexture;
+    struct ImageData NormalTexture;
 };
 
 

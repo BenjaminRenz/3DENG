@@ -1,5 +1,5 @@
 # depslib dependency file v1.0
-1613360166 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
+1613516687 source:c:\users\badmin\desktop\gitprojects\3deng\main.c
 	<stdio.h>
 	<stdlib.h>
 	<string.h>
@@ -8,7 +8,7 @@
 	"shaderc/shaderc.h"
 	"glfw/glfw3.h"
 	"mathHelper/mathHelper.h"
-	"linmath/linmath.h"
+	"linmath/linmathVk.h"
 	<debugPrint/debugPrint.h>
 	"xmlReader/xmlReader.h"
 	"xmlReader/xmlHelper.h"
@@ -36,14 +36,14 @@
 
 1605725052 
 
-1613085969 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.h
+1613360458 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\stringutils.h
 	"dynList/dynList.h"
 	<stdarg.h>
 	<stddef.h>
 	<stdint.h>
 	<uchar.h>
 
-1613090514 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader.c
+1613360359 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlreader.c
 	<stdio.h>
 	<stdlib.h>
 	<stdarg.h>
@@ -207,7 +207,7 @@
 1612974372 c:\users\badmin\desktop\gitprojects\3deng\submodules\mathhelper\mathhelper.h
 	<stdint.h>
 
-1611690284 c:\users\badmin\desktop\gitprojects\3deng\submodules\linmath\linmath.h
+1613491476 c:\users\badmin\desktop\gitprojects\3deng\submodules\linmath\linmath.h
 	<string.h>
 	<math.h>
 	<string.h>
@@ -219,13 +219,13 @@
 1604418712 c:\users\badmin\desktop\gitprojects\3deng\submodules\debugprint\debugprint.h
 	<stdio.h>
 
-1613250169 c:\users\badmin\desktop\gitprojects\3deng\submodules\daeloader\daeloader.h
+1613410976 c:\users\badmin\desktop\gitprojects\3deng\submodules\daeloader\daeloader.h
 	<stdint.h>
 	"dynList/dynList.h"
 	"xmlReader/stringutils.h"
 	"bmpLoader/bmpLoader.h"
 
-1613250411 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\daeloader\daeloader.c
+1613423065 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\daeloader\daeloader.c
 	"daeLoader/daeLoader.h"
 	"bmpLoader/bmpLoader.h"
 	"xmlReader/xmlReader.h"
@@ -233,13 +233,13 @@
 	"debugPrint/debugPrint.h"
 	"stdlib.h"
 
-1613359639 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\bmploader\bmploader.c
+1613512378 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\bmploader\bmploader.c
 	"bmpLoader/bmpLoader.h"
 	"debugPrint/debugPrint.h"
 	<stdlib.h>
 	<string.h>
 
-1613246879 c:\users\badmin\desktop\gitprojects\3deng\submodules\bmploader\bmploader.h
+1613410944 c:\users\badmin\desktop\gitprojects\3deng\submodules\bmploader\bmploader.h
 	<stdint.h>
 
 1613187875 c:\users\badmin\desktop\gitprojects\3deng\submodules\dynlist\dynlist.h
@@ -249,19 +249,19 @@
 	<string.h>
 	<stdint.h>
 
-1613067763 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlhelper.h
+1613360434 c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlhelper.h
 	"xmlReader/xmlReader.h"
 	"xmlReader/stringutils.h"
 
-1613067754 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlhelper.c
+1613360437 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\xmlreader\xmlhelper.c
 	"xmlReader/xmlHelper.h"
 
-1613356167 c:\users\badmin\desktop\gitprojects\3deng\submodules\vkengine\core.h
+1613513236 c:\users\badmin\desktop\gitprojects\3deng\submodules\vkengine\core.h
 	"glfw/glfw3.h"
 	"daeLoader/daeLoader.h"
 	"vkEngine/imgAndBuf.h"
 
-1613356208 c:\users\badmin\desktop\gitprojects\3deng\submodules\vkengine\imgandbuf.h
+1613413324 c:\users\badmin\desktop\gitprojects\3deng\submodules\vkengine\imgandbuf.h
 	"vulkan/vulkan.h"
 	"vkEngine/core.h"
 	"dynList/dynList.h"
@@ -271,4 +271,7 @@
 1613357076 source:c:\users\badmin\desktop\gitprojects\3deng\submodules\vkengine\imgandbuf.c
 	"vkEngine/imgAndBuf.h"
 	"mathHelper/mathHelper.h"
+
+1613494466 c:\users\badmin\desktop\gitprojects\3deng\submodules\linmath\linmathvk.h
+	"linmath/linmath.h"
 

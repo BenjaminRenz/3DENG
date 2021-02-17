@@ -8,7 +8,7 @@
 do {                                                                    \
     uint32_t errorcode=function;                                        \
     if(errorcode){                                                      \
-        printf("Error code %x occured in line %d\n",errorcode,__LINE__);\
+        printf("Error code %d occured in line %d\n",errorcode,__LINE__);\
         exit(1);                                                        \
     }                                                                   \
 } while (0)
@@ -17,18 +17,30 @@ do {                                                                    \
 do {                                                                    \
     uint32_t errorcode=function;                                        \
     if(errorcode){                                                      \
-        printf("Error code %x occured in line %d\n",errorcode,__LINE__);\
+        printf("Error code %d occured in line %d\n",errorcode,__LINE__);\
         action;                                                         \
     }                                                                   \
 } while (0)
 
+struct inBufferData{
+    VkBuffer BufferHandle;
+    VkDeviceSize InBufferOffset;
+    VkDeviceSize InBufferSize;
+};
+
+struct TextureData{
+    VkSampler   ImageSampler;
+    VkImage     ImageHandle;
+    VkImageView ImageView;
+};
 
 struct eng3dObject{
-    struct DataFromDae       daeData;
-    VkBuffer                 vtxBufferHandle;
-    VkDeviceSize             PosNormUvInBufOffset;
-    VkDeviceSize             IdxInBufOffset;
-    uint32_t                 vertexCount;
+    struct DataFromDae  daeData;
+    struct inBufferData PosAndUvData;
+    struct inBufferData IdxData;
+    struct inBufferData UniformData;
+    struct TextureData  DiffuseData;
+    uint32_t            vertexCount;
 };
 DlTypedef_plain(eng3dObj,struct eng3dObject);
 
@@ -61,12 +73,18 @@ struct VulkanRuntimeInfo{
 
     VkSurfaceKHR        surface;
 
+    //Swapchain
     VkSwapchainKHR      swapChain;
     uint32_t            imagesInFlightCount;
     VkImage*            swapChainImagesP;
     VkExtent2D          swapChainImageExtent;
     VkSurfaceFormatKHR  swapChainFormat;
     VkImageView*        swapChainImageViewsP;
+
+    //Depth Buffer
+    VkImage*            depthBufferImagesP;
+    VkImageView*        depthBufferImageViewsP;
+    VkFormat            depthBufferFormat;
 
     VkRenderPass renderPass;
 

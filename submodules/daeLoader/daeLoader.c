@@ -43,6 +43,12 @@ void _daeLoader_getTextureData(struct DataFromDae* outputDataP, xmlTreeElement* 
         char* imageLoadPathString = Dl_utf32Char_toStringAlloc_freeArg1(LoadImagePathString);
         dprintf(DBGT_INFO, "Load Image from %s", imageLoadPathString);
         outputDataP->DiffuseTexture = bmpLoader_load(imageLoadPathString, outputFormatString, pack32Toggle);
+        /*for(int y = 0; y < outputDataP->DiffuseTexture.height; y++){
+            for(int x = 0; x < outputDataP->DiffuseTexture.width; x++){
+                printf("%x \t", outputDataP->DiffuseTexture.dataP[outputDataP->DiffuseTexture.width * y + x]);
+            }
+            printf("\n");
+        }*/
     }
     Dl_utf32Char_delete(PrePathString);
 }
@@ -193,6 +199,7 @@ void _daeLoader_getVertexData(struct DataFromDae* outputDataP, xmlTreeElement* x
         }
     }
     Dl_float_resize(CombinedPsNrUvDlP, 10 * uniqueVertices); //Discard preallocated data which has been left empty because of dulplicat vertices
+    /*
     for(uint32_t idx = 0; idx < NewIndexBuffer->itemcnt; idx++) {
         printf("I: %d\n", ((int32_t*)NewIndexBuffer->items)[idx]);
     }
@@ -205,7 +212,7 @@ void _daeLoader_getVertexData(struct DataFromDae* outputDataP, xmlTreeElement* x
         printf("nz: %f\t", ((float*)CombinedPsNrUvDlP->items)[item + 6]);
         printf("u: %f\t", ((float*)CombinedPsNrUvDlP->items)[item + 8]);
         printf("v: %f\n", ((float*)CombinedPsNrUvDlP->items)[item + 9]);
-    }
+    }*/
     outputDataP->CombinedPsNrUvDlP = CombinedPsNrUvDlP;
     outputDataP->IndexingDlP = NewIndexBuffer;
 }

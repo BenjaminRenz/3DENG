@@ -72,6 +72,14 @@
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="submodules/mathHelper/mathHelper.h" />
+		<Unit filename="submodules/vkEngine/core.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="submodules/vkEngine/core.h" />
+		<Unit filename="submodules/vkEngine/imgAndBuf.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="submodules/vkEngine/imgAndBuf.h" />
 		<Unit filename="submodules/xmlReader/stringutils.c">
 			<Option compilerVar="CC" />
 		</Unit>

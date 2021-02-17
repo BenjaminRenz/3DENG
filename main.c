@@ -8,7 +8,7 @@
 
 #include "glfw/glfw3.h"
 #include "mathHelper/mathHelper.h"      //for countBitsInUint32
-#include "linmath/linmath.h"
+#include "linmath/linmathVk.h"
 #include <debugPrint/debugPrint.h>
 #include "xmlReader/xmlReader.h"
 #include "xmlReader/xmlHelper.h"
@@ -22,7 +22,7 @@
 uint32_t eng_get_version_number_from_xmlemnt(xmlTreeElement* currentReqXmlP);
 uint32_t eng_get_version_number_from_UTF32DynlistP(Dl_utf32Char* inputStringP);
 struct xmlTreeElement* eng_get_eng_setupxml(char* FilePath, int debug_enabled);
-
+void eng_createTextureImageViewsAndSamplers(struct VulkanRuntimeInfo* vkRuntimeInfoP, Dl_PerTexData* TexInfoDlP);
 
 struct modelPathAndName {
     Dl_utf32Char* pathString;
@@ -107,117 +107,123 @@ void eng_createShaderModule(struct VulkanRuntimeInfo* vkRuntimeInfoP, char* Shad
     //shaderc_result_release(compResultVertex);
     //shaderc_result_release(compResultFragment);
 }
-/*
-void _eng_DynamicUnifBuf_allocateAndBind(struct VulkanRuntimeInfo* vkRuntimeInfoP, struct engBufferHandle* BufferWithSpecifiedSizeP){
 
-    eng_AllocBlock_createHandlesAndGetMemReq()
+DlTypedef_plain(VkFormat,uint32_t);
 
-    //Create handle for new uniform buffer
-    VkBufferCreateInfo UniformBufferCreateInfo={0};
-    UniformBufferCreateInfo.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    UniformBufferCreateInfo.queueFamilyIndexCount=1;
-    UniformBufferCreateInfo.pQueueFamilyIndices=&(vkRuntimeInfoP->graphics_queue_family_idx);
-    UniformBufferCreateInfo.sharingMode=VK_SHARING_MODE_EXCLUSIVE;
-    UniformBufferCreateInfo.usage=VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-    UniformBufferCreateInfo.size=BufferWithSpecifiedSizeP->ContentSizeInBytes;
-
-    CHK_VK(vkCreateBuffer(vkRuntimeInfoP->device,&UniformBufferCreateInfo,NULL,&(BufferWithSpecifiedSizeP->BufferHandle)));
-
-    //Get memory requirements
-    VkMemoryRequirements UniformBufferMemoryRequirements;
-    vkGetBufferMemoryRequirements(vkRuntimeInfoP->device,BufferWithSpecifiedSizeP->BufferHandle,&UniformBufferMemoryRequirements);
-    VkDeviceSize UniformBufferMemorySizeWithPadding=0;
-    UniformBufferMemorySizeWithPadding=UniformBufferMemoryRequirements.size;
-    if(UniformBufferMemoryRequirements.size%UniformBufferMemoryRequirements.alignment){ //End of buffer is not aligned, so pad size so that it is
-        UniformBufferMemorySizeWithPadding/=UniformBufferMemoryRequirements.alignment;
-        UniformBufferMemorySizeWithPadding++;
-        UniformBufferMemorySizeWithPadding*=UniformBufferMemoryRequirements.alignment;
-    }
-
-    uint32_t bestMemoryTypeIdx=_eng_Memory_findBestType(vkRuntimeInfoP,
-                                UniformBufferMemoryRequirements.memoryTypeBits,
-                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, //Memory needs to be Host visible
-                                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                                VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
-                                &(BufferWithSpecifiedSizeP->MemoryFlags),
-                                UniformBufferMemorySizeWithPadding);
-
-    //Allocate Memory for unifrom buffer
-    _eng_Memory_allocate(vkRuntimeInfoP,&(BufferWithSpecifiedSizeP->Memory),UniformBufferMemorySizeWithPadding,bestMemoryTypeIdx);
-
-    //Bind the buffer handle to memory
-    CHK_VK(vkBindBufferMemory(vkRuntimeInfoP->device,BufferWithSpecifiedSizeP->BufferHandle,BufferWithSpecifiedSizeP->Memory,0));
+Dl_VkFormat* Dl_VkFormat_initWithDepthFormats(){
+    VkFormat SupportedFormatsList[]={
+        VK_FORMAT_D32_SFLOAT,
+        VK_FORMAT_D32_SFLOAT_S8_UINT,
+        VK_FORMAT_D24_UNORM_S8_UINT
+    };
+    return Dl_VkFormat_alloc(sizeof(SupportedFormatsList)/sizeof(SupportedFormatsList[0]),SupportedFormatsList);
 }
-*/
 
+Dl_VkFormat* Dl_VkFormat_initWithTextureFormats(){
+    VkFormat SupportedFormatsList[]={
+        VK_FORMAT_A8B8G8R8_SRGB_PACK32,
+        VK_FORMAT_B8G8R8A8_SRGB,
+        VK_FORMAT_R8G8B8A8_SRGB
+    };
+    return Dl_VkFormat_alloc(sizeof(SupportedFormatsList)/sizeof(SupportedFormatsList[0]),SupportedFormatsList);
+}
 
-struct formatAndReaderArgument {
-    VkFormat imageFormat;
-    char* readerOutputFormat;
-    char pack32Toggle;
+struct eng_FormatProps{
+    VkFormatFeatureFlags    FormatFeatures;
+    VkImageType             ImageType;
+    VkImageUsageFlags       ImageUsageFlags;
+    VkImageFormatProperties ImageFormatProperties;
+    VkImageTiling           ImageTiling;
 };
 
-struct formatAndReaderArgument _eng_getSupported2DImageFormats(struct VulkanRuntimeInfo* vkRuntimeInfoP, VkImageFormatProperties* optionalMinImageFormatPropertiesP, VkImageFormatProperties* returnImageFormatPropertiesP) {
-    struct formatAndReaderArgument preferenceList[] = {
-        {VK_FORMAT_A8B8G8R8_SRGB_PACK32, "ABGR", 1},
-        {VK_FORMAT_B8G8R8A8_SRGB, "BGRA", 0},
-        {VK_FORMAT_R8G8B8A8_SRGB, "RGBA", 0}
-    };
-    for(size_t prefIdx = 0; prefIdx < (sizeof(preferenceList) / sizeof(preferenceList[0])); prefIdx++) {
-        VkImageFormatProperties FormatProperties;
-        if(vkGetPhysicalDeviceImageFormatProperties(vkRuntimeInfoP->physSelectedDevice, preferenceList[prefIdx].imageFormat, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT, 0, &FormatProperties)) {
+VkFormat _eng_selectSupportedVkFormat(struct VulkanRuntimeInfo* vkRuntimeInfoP, Dl_VkFormat* candidateFormatsDlP, struct eng_FormatProps* MinReqFormatPropsP, VkImageFormatProperties* optReturnMaxFormatPropsP) {
+    for(size_t candidateIdx = 0; candidateIdx < candidateFormatsDlP->itemcnt; candidateIdx++) {
+        //check for overall support of this format and if the format features are fulfilled
+        VkFormatProperties FormatProps;
+        vkGetPhysicalDeviceFormatProperties(vkRuntimeInfoP->physSelectedDevice,candidateFormatsDlP->items[candidateIdx],&FormatProps);
+        if(MinReqFormatPropsP->ImageTiling==VK_IMAGE_TILING_OPTIMAL){
+            if((FormatProps.optimalTilingFeatures&MinReqFormatPropsP->FormatFeatures) != MinReqFormatPropsP->FormatFeatures){
+                continue;
+            }
+        }else if(MinReqFormatPropsP->ImageTiling==VK_IMAGE_TILING_LINEAR){
+            if((FormatProps.linearTilingFeatures&MinReqFormatPropsP->FormatFeatures) != MinReqFormatPropsP->FormatFeatures){
+                continue;
+            }
+        }
+
+        //check for specific image format support
+        VkImageFormatProperties imageFormatProperties;
+        if(vkGetPhysicalDeviceImageFormatProperties(vkRuntimeInfoP->physSelectedDevice,
+                                                    candidateFormatsDlP->items[candidateIdx],
+                                                    MinReqFormatPropsP->ImageType,
+                                                    MinReqFormatPropsP->ImageTiling,
+                                                    MinReqFormatPropsP->ImageUsageFlags,
+                                                    0,
+                                                    &imageFormatProperties)) {
+            //if return is != VK_SUCCESS this format is not supported
             continue;
         }
-        if(optionalMinImageFormatPropertiesP) {
-            if(optionalMinImageFormatPropertiesP->maxMipLevels > FormatProperties.maxMipLevels) {
-                continue;  //the required mip level was not supported
-            }
-            if(optionalMinImageFormatPropertiesP->maxExtent.height > FormatProperties.maxExtent.height) {
-                continue;  //supported resolution was not high enough
-            }
-            if(optionalMinImageFormatPropertiesP->maxExtent.width > FormatProperties.maxExtent.width) {
-                continue; //supported resolution was not high enough
-            }
-            if(optionalMinImageFormatPropertiesP->maxExtent.depth > FormatProperties.maxExtent.depth) {
-                continue; //supported resolution was not high enough
-            }
-            if(optionalMinImageFormatPropertiesP->maxArrayLayers > FormatProperties.maxArrayLayers) {
-                continue; //supports to few array layers
-            }
-            if(optionalMinImageFormatPropertiesP->maxResourceSize > FormatProperties.maxResourceSize) {
-                continue;
-            }
-            if((optionalMinImageFormatPropertiesP->sampleCounts & FormatProperties.sampleCounts) != optionalMinImageFormatPropertiesP->sampleCounts) {
-                continue;
-            }
+
+
+        if(MinReqFormatPropsP->ImageFormatProperties.maxMipLevels > imageFormatProperties.maxMipLevels) {
+            continue;  //the required mip level was not supported
         }
-        if(returnImageFormatPropertiesP) {
-            memcpy(returnImageFormatPropertiesP, &FormatProperties, sizeof(VkImageFormatProperties));
+        if(MinReqFormatPropsP->ImageFormatProperties.maxExtent.height > imageFormatProperties.maxExtent.height) {
+            continue;  //supported resolution was not high enough
         }
-        return preferenceList[prefIdx];
+        if(MinReqFormatPropsP->ImageFormatProperties.maxExtent.width > imageFormatProperties.maxExtent.width) {
+            continue; //supported resolution was not high enough
+        }
+        if(MinReqFormatPropsP->ImageFormatProperties.maxExtent.depth > imageFormatProperties.maxExtent.depth) {
+            continue; //supported resolution was not high enough
+        }
+        if(MinReqFormatPropsP->ImageFormatProperties.maxArrayLayers > imageFormatProperties.maxArrayLayers) {
+            continue; //supports to few array layers
+        }
+        if(MinReqFormatPropsP->ImageFormatProperties.maxResourceSize > imageFormatProperties.maxResourceSize) {
+            continue;
+        }
+        if((MinReqFormatPropsP->ImageFormatProperties.sampleCounts & imageFormatProperties.sampleCounts) != MinReqFormatPropsP->ImageFormatProperties.sampleCounts) {
+            continue;
+        }
+        //Return actual Format Props
+        if(optReturnMaxFormatPropsP){
+            (*optReturnMaxFormatPropsP)=imageFormatProperties;
+        }
+        uint32_t resultFormat=candidateFormatsDlP->items[candidateIdx];
+        Dl_VkFormat_delete(candidateFormatsDlP);
+        return resultFormat;
     }
     dprintf(DBGT_ERROR, "No supported Image Format found");
     exit(1);
 }
-
 
 void _eng_setAccMasksAndTransImgLayout(struct VulkanRuntimeInfo* vkRuntimeInfoP, VkCommandBuffer CommandBuffer, VkImageMemoryBarrier* imgMemBarP) {
     VkPipelineStageFlags srcStage;
     VkPipelineStageFlags dstStage;
     if(      imgMemBarP->oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
              imgMemBarP->newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-        //For getting image ready to copy staging buffer to image
+        //For getting image ready to copy staging buffer to image 0->(w)
         srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
         dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
         imgMemBarP->srcAccessMask = 0;
         imgMemBarP->dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     } else if(imgMemBarP->oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
               imgMemBarP->newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
-        //For getting image after it has been filled ready to be used inside the fragment shader
+        //For getting image after it has been filled ready to be used inside the fragment shader (w)->(r)
         srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
         dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
         imgMemBarP->srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         imgMemBarP->dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    } else if(imgMemBarP->oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
+              imgMemBarP->newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL){
+        //For getting image ready to be used as a depth and stencil attachment 0->(r/w)
+        srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        dstStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        imgMemBarP->srcAccessMask = 0;
+        imgMemBarP->dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|
+                                    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
     } else {
         dprintf(DBGT_ERROR, "image layout transition not handled");
         exit(1);
@@ -232,13 +238,39 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP, Dl_modelPa
 
     //check the supported image formats
     VkImageFormatProperties maximumImageProperties;
-    struct formatAndReaderArgument readerArg = _eng_getSupported2DImageFormats(vkRuntimeInfoP, NULL, &maximumImageProperties);
+    struct eng_FormatProps TextureFormatProps = {0};
+    TextureFormatProps.ImageTiling  = VK_IMAGE_TILING_OPTIMAL;
+    TextureFormatProps.ImageType    = VK_IMAGE_TYPE_2D;
+    TextureFormatProps.ImageUsageFlags = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    VkFormat selectedTextureFormat=_eng_selectSupportedVkFormat(vkRuntimeInfoP, Dl_VkFormat_initWithTextureFormats(), &TextureFormatProps, NULL);
+
+
+    /*struct formatAndReaderArgument preferenceList[] = {
+        {VK_FORMAT_A8B8G8R8_SRGB_PACK32, "RGBA", 1},
+        {VK_FORMAT_B8G8R8A8_SRGB, "BGRA", 0},
+        {VK_FORMAT_R8G8B8A8_SRGB, "RGBA", 0}
+    };*/
+
 
     for(size_t ObjectNum = 0; ObjectNum < modelPathAndNameDlP->itemcnt; ObjectNum++) {
         Dl_utf32Char* FilePathString  = modelPathAndNameDlP->items[ObjectNum].pathString;
         Dl_utf32Char* ModelNameString = modelPathAndNameDlP->items[ObjectNum].modelName;
         dprintf(DBGT_INFO, "Itemcount of model Path %d, address of 3dobj %x", modelPathAndNameDlP->itemcnt, &(all3dObjectsDlP->items[ObjectNum].daeData));
-        daeLoader_load(FilePathString, ModelNameString, &(all3dObjectsDlP->items[ObjectNum].daeData), readerArg.readerOutputFormat, readerArg.pack32Toggle);
+        switch(selectedTextureFormat){
+            case VK_FORMAT_A8B8G8R8_SRGB_PACK32:
+                daeLoader_load(FilePathString, ModelNameString, &(all3dObjectsDlP->items[ObjectNum].daeData), "RGBA", 1);
+            break;
+            case VK_FORMAT_B8G8R8A8_SRGB:
+                daeLoader_load(FilePathString, ModelNameString, &(all3dObjectsDlP->items[ObjectNum].daeData), "BGRA", 0);
+            break;
+            case VK_FORMAT_R8G8B8A8_SRGB:
+                daeLoader_load(FilePathString, ModelNameString, &(all3dObjectsDlP->items[ObjectNum].daeData), "RGBA", 0);
+            break;
+            default:
+                dprintf(DBGT_ERROR,"Selected Texture format not supported by daeLoader");
+                exit(1);
+        }
+
         all3dObjectsDlP->items[ObjectNum].vertexCount = all3dObjectsDlP->items[ObjectNum].daeData.IndexingDlP->itemcnt;
     }
 
@@ -246,28 +278,28 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP, Dl_modelPa
     //  Create Textures
     //
     struct eng_AllocBlock TexAllocBlock = {0};
-    TexAllocBlock.TexAllocInfoDlP = Dl_PerTexAllocInfo_alloc(all3dObjectsDlP->itemcnt, NULL);
+    TexAllocBlock.TexAllocInfoDlP = Dl_PerTexData_alloc(all3dObjectsDlP->itemcnt, NULL);
     struct eng_AllocBlock TexBufStagingAllocBlock = {0};
-    TexBufStagingAllocBlock.BufAllocInfoDlP = Dl_PerBufAllocInfo_alloc(all3dObjectsDlP->itemcnt, NULL);
+    TexBufStagingAllocBlock.BufAllocInfoDlP = Dl_PerBufData_alloc(all3dObjectsDlP->itemcnt, NULL);
 
     //fill in fields
     for(size_t ObjectNum = 0; ObjectNum < all3dObjectsDlP->itemcnt; ObjectNum++) {
         struct eng3dObject* current3dObjectP = &(all3dObjectsDlP->items[ObjectNum]);
         if(current3dObjectP->daeData.DiffuseTexture.dataP) {
             //fill in fields to generate buffer handles
-            struct eng_PerBufAllocInfo* CurrentBufAllocInfoP   = &(TexBufStagingAllocBlock.BufAllocInfoDlP->items[ObjectNum]);
+            struct eng_PerBufData* CurrentBufAllocInfoP   = &(TexBufStagingAllocBlock.BufAllocInfoDlP->items[ObjectNum]);
             VkDeviceSize imageContentSize                      = 4 * current3dObjectP->daeData.DiffuseTexture.width * current3dObjectP->daeData.DiffuseTexture.height;
             CurrentBufAllocInfoP->initContentSizeInBytes       = imageContentSize;
             CurrentBufAllocInfoP->initUsage                    = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 
             //fill in fields to generate texture handles
-            struct eng_PerTexAllocInfo* CurrentTexAllocInfoP   = &(TexAllocBlock.TexAllocInfoDlP->items[ObjectNum]);
-            CurrentTexAllocInfoP->initFormat                   = readerArg.imageFormat;
+            struct eng_PerTexData* CurrentTexAllocInfoP   = &(TexAllocBlock.TexAllocInfoDlP->items[ObjectNum]);
+            CurrentTexAllocInfoP->initFormat                   = selectedTextureFormat;
             CurrentTexAllocInfoP->initTiling                   = VK_IMAGE_TILING_OPTIMAL;
             CurrentTexAllocInfoP->initContentExtentInPx.depth  = 1;
             CurrentTexAllocInfoP->initContentExtentInPx.width  = current3dObjectP->daeData.DiffuseTexture.width;
             CurrentTexAllocInfoP->initContentExtentInPx.height = current3dObjectP->daeData.DiffuseTexture.height;
-            CurrentTexAllocInfoP->initUsage                    = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+            CurrentTexAllocInfoP->initUsage                    = TextureFormatProps.ImageUsageFlags;
         } else {
 
         }
@@ -283,12 +315,19 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP, Dl_modelPa
         dprintf(DBGT_INFO, "Image loader has detected unified memory");
     }
 
+    //create image samplers and views
+    eng_createTextureImageViewsAndSamplers(vkRuntimeInfoP,TexAllocBlock.TexAllocInfoDlP);
+
     //create buffers for staging upload
     eng_AllocBlock_createHandlesAndGetMemReq (vkRuntimeInfoP, &TexBufStagingAllocBlock);
     eng_AllocBlock_alignAndCalcSizeAndOffsets(vkRuntimeInfoP, &TexBufStagingAllocBlock);
     eng_AllocBlock_setStagingAlloc           (vkRuntimeInfoP, &TexBufStagingAllocBlock, NULL);
     eng_AllocBlock_allocAndBindMem           (vkRuntimeInfoP, &TexBufStagingAllocBlock);
 
+    //fill scene with references to image data
+    for(size_t ObjectNum = 0; ObjectNum < all3dObjectsDlP->itemcnt; ObjectNum++) {
+        all3dObjectsDlP->items[ObjectNum].DiffuseData.ImageHandle = TexAllocBlock.TexAllocInfoDlP->items[ObjectNum].ImageHandle;
+    }
     //fill staging buffer with data
     for(size_t ObjectNum = 0; ObjectNum < all3dObjectsDlP->itemcnt; ObjectNum++) {
         void* mappedMemoryP;
@@ -348,27 +387,32 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP, Dl_modelPa
     _eng_cmdBuf_endAndSubmitSingleUse(vkRuntimeInfoP, UploadTextureCommandBuffer);
 
     //
-    //  Create Vertex buffers
+    //  create vertex and per object constant uniform buffers
     //
     struct eng_AllocBlock VtxBuffAllocBlock = {0};
-    VtxBuffAllocBlock.BufAllocInfoDlP = Dl_PerBufAllocInfo_alloc(all3dObjectsDlP->itemcnt, NULL);
+    VtxBuffAllocBlock.BufAllocInfoDlP = Dl_PerBufData_alloc(all3dObjectsDlP->itemcnt, NULL);
     for(size_t ObjectNum = 0; ObjectNum < all3dObjectsDlP->itemcnt; ObjectNum++) {
         struct eng3dObject* current3dObjectP = &(all3dObjectsDlP->items[ObjectNum]);
-        current3dObjectP->PosNormUvInBufOffset  = 0;
-        current3dObjectP->IdxInBufOffset        = current3dObjectP->daeData.CombinedPsNrUvDlP->itemcnt * sizeof(float);
+        current3dObjectP->PosAndUvData.InBufferOffset = 0;
+        current3dObjectP->PosAndUvData.InBufferSize   = current3dObjectP->daeData.CombinedPsNrUvDlP->itemcnt * sizeof(float);
+        current3dObjectP->IdxData.InBufferOffset      = current3dObjectP->PosAndUvData.InBufferSize;
+        current3dObjectP->IdxData.InBufferSize        = current3dObjectP->daeData.IndexingDlP->itemcnt * sizeof(uint32_t);
+        current3dObjectP->UniformData.InBufferOffset  = current3dObjectP->IdxData.InBufferOffset + current3dObjectP->IdxData.InBufferSize;
+        current3dObjectP->UniformData.InBufferSize    = 0; //TODO per object uniform buffer
 
-        struct eng_PerBufAllocInfo* CurrentBufAllocInfoP = &(VtxBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum]);
-        CurrentBufAllocInfoP->initContentSizeInBytes = (current3dObjectP->daeData.CombinedPsNrUvDlP->itemcnt * sizeof(float))
-                + (current3dObjectP->daeData.IndexingDlP->itemcnt       * sizeof(uint32_t));
-        CurrentBufAllocInfoP->initUsage =  VK_BUFFER_USAGE_INDEX_BUFFER_BIT
-                                           | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
-                                           | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
-                                           | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        struct eng_PerBufData* CurrentBufAllocInfoP   = &(VtxBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum]);
+        CurrentBufAllocInfoP->initContentSizeInBytes  = current3dObjectP->UniformData.InBufferOffset + current3dObjectP->UniformData.InBufferSize;
+        CurrentBufAllocInfoP->initUsage               = VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+                                                       | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+                                                       | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
+                                                       | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     }
     eng_AllocBlock_createHandlesAndGetMemReq  (vkRuntimeInfoP, &VtxBuffAllocBlock);
     for(size_t ObjectNum = 0; ObjectNum < all3dObjectsDlP->itemcnt; ObjectNum++) {
         struct eng3dObject* current3dObjectP = &(all3dObjectsDlP->items[ObjectNum]);
-        current3dObjectP->vtxBufferHandle = VtxBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum].BufferHandle;
+        current3dObjectP->PosAndUvData.BufferHandle = VtxBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum].BufferHandle;
+        current3dObjectP->IdxData.BufferHandle      = VtxBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum].BufferHandle;
+        current3dObjectP->UniformData.BufferHandle  = VtxBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum].BufferHandle;
     }
     eng_AllocBlock_alignAndCalcSizeAndOffsets (vkRuntimeInfoP, &VtxBuffAllocBlock);
     uint32_t resVtxBufMemProps;
@@ -380,11 +424,11 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP, Dl_modelPa
     //handle the case where we need to create a staging buffer
     struct eng_AllocBlock optVtxStagingBuffAllocBlock = {0};
     if(!unifiedMemoryFlag) { //non unified memory detected, we need to create a separate staging buffer on the cpu side memory
-        optVtxStagingBuffAllocBlock.BufAllocInfoDlP = Dl_PerBufAllocInfo_alloc(all3dObjectsDlP->itemcnt, NULL);
+        optVtxStagingBuffAllocBlock.BufAllocInfoDlP = Dl_PerBufData_alloc(all3dObjectsDlP->itemcnt, NULL);
         //copy contentSize information from GPU side buffer
         for(size_t ObjectNum = 0; ObjectNum < all3dObjectsDlP->itemcnt; ObjectNum++) {
-            struct eng_PerBufAllocInfo* CurrentVtxBufAllocInfoP        =           &(VtxBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum]);
-            struct eng_PerBufAllocInfo* CurrentStagingVtxBufAllocInfoP = &(optVtxStagingBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum]);
+            struct eng_PerBufData* CurrentVtxBufAllocInfoP        =           &(VtxBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum]);
+            struct eng_PerBufData* CurrentStagingVtxBufAllocInfoP = &(optVtxStagingBuffAllocBlock.BufAllocInfoDlP->items[ObjectNum]);
             CurrentStagingVtxBufAllocInfoP->initContentSizeInBytes = CurrentVtxBufAllocInfoP->initContentSizeInBytes;
             CurrentStagingVtxBufAllocInfoP->initUsage              =  VK_BUFFER_USAGE_INDEX_BUFFER_BIT
                     | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
@@ -416,13 +460,14 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP, Dl_modelPa
         }
 
         //copy position,normal,uv data
-        memcpy(((char*)mappedMemoryP) + all3dObjectsDlP->items[ObjectNum].PosNormUvInBufOffset,
+        memcpy(((char*)mappedMemoryP) + all3dObjectsDlP->items[ObjectNum].PosAndUvData.InBufferOffset,
                all3dObjectsDlP->items[ObjectNum].daeData.CombinedPsNrUvDlP->items,
-               all3dObjectsDlP->items[ObjectNum].daeData.CombinedPsNrUvDlP->itemcnt * sizeof(float));
+               all3dObjectsDlP->items[ObjectNum].PosAndUvData.InBufferSize);
         //copy combined index
-        memcpy(((char*)mappedMemoryP) + all3dObjectsDlP->items[ObjectNum].IdxInBufOffset,
+        memcpy(((char*)mappedMemoryP) + all3dObjectsDlP->items[ObjectNum].IdxData.InBufferOffset,
                all3dObjectsDlP->items[ObjectNum].daeData.IndexingDlP->items,
-               all3dObjectsDlP->items[ObjectNum].daeData.IndexingDlP->itemcnt * sizeof(uint32_t));
+               all3dObjectsDlP->items[ObjectNum].IdxData.InBufferSize);
+        //TODO copy per object uniforms
         if(!unifiedMemoryFlag) {
             vkUnmapMemory(vkRuntimeInfoP->device, optVtxStagingBuffAllocBlock.Memory);
         } else {
@@ -450,15 +495,15 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP, Dl_modelPa
     }
 
     //
-    //  Create Uniform buffers
+    //  Create per frame updating Uniform buffers
     //
 
     //Setup Uniform Buffer, no upload needed
     //ToDo support per object mvp matrices
     vkRuntimeInfoP->FastUpdateUniformAllocP = (struct eng_AllocBlock*)malloc(sizeof(struct eng_AllocBlock));
     memset(vkRuntimeInfoP->FastUpdateUniformAllocP, 0, sizeof(struct eng_AllocBlock));
-    vkRuntimeInfoP->FastUpdateUniformAllocP->BufAllocInfoDlP = Dl_PerBufAllocInfo_alloc(1, NULL);
-    vkRuntimeInfoP->FastUpdateUniformAllocP->BufAllocInfoDlP->items[0].initContentSizeInBytes = sizeof(mat4x4) * vkRuntimeInfoP->imagesInFlightCount;
+    vkRuntimeInfoP->FastUpdateUniformAllocP->BufAllocInfoDlP = Dl_PerBufData_alloc(1, NULL);
+    vkRuntimeInfoP->FastUpdateUniformAllocP->BufAllocInfoDlP->items[0].initContentSizeInBytes = sizeof(mat4x4) * vkRuntimeInfoP->imagesInFlightCount * scene1ObjectsDlP->itemcnt;
     vkRuntimeInfoP->FastUpdateUniformAllocP->BufAllocInfoDlP->items[0].initUsage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     eng_AllocBlock_createHandlesAndGetMemReq  (vkRuntimeInfoP, vkRuntimeInfoP->FastUpdateUniformAllocP);
     eng_AllocBlock_alignAndCalcSizeAndOffsets (vkRuntimeInfoP, vkRuntimeInfoP->FastUpdateUniformAllocP);
@@ -473,7 +518,7 @@ void eng_load_static_models(struct VulkanRuntimeInfo* vkRuntimeInfoP, Dl_modelPa
         }
         vkFreeMemory(vkRuntimeInfoP->device, optVtxStagingBuffAllocBlock.Memory, NULL);
         vkFreeMemory(vkRuntimeInfoP->device, TexBufStagingAllocBlock.Memory, NULL);
-        Dl_PerBufAllocInfo_delete(optVtxStagingBuffAllocBlock.BufAllocInfoDlP);
+        Dl_PerBufData_delete(optVtxStagingBuffAllocBlock.BufAllocInfoDlP);
     }
 }
 
@@ -999,52 +1044,90 @@ void eng_createSwapChain(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
     CHK_VK(vkGetSwapchainImagesKHR(vkRuntimeInfoP->device, vkRuntimeInfoP->swapChain, &vkRuntimeInfoP->imagesInFlightCount, vkRuntimeInfoP->swapChainImagesP));
 }
 
+void eng_createTextureImageViewsAndSamplers(struct VulkanRuntimeInfo* vkRuntimeInfoP, Dl_PerTexData* TexInfoDlP){
+    VkSampler Sampler;
+    VkSamplerCreateInfo SamplerInfo = {0};
+    SamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    SamplerInfo.magFilter = VK_FILTER_LINEAR;
+    SamplerInfo.minFilter = VK_FILTER_LINEAR;
+    SamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    //SamplerInfo.
+    SamplerInfo.mipLodBias = 0.0f;
+    SamplerInfo.minLod = 0.0f;
+    SamplerInfo.maxLod = 0.0f;
+    CHK_VK(vkCreateSampler(vkRuntimeInfoP->device, &SamplerInfo, NULL, &Sampler));
+
+    for(size_t objectIdx = 0; objectIdx < scene1ObjectsDlP->itemcnt; objectIdx++){
+        //Create Texture image view
+        VkImageViewCreateInfo ImageViewInfo = {0};
+        ImageViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        ImageViewInfo.format = TexInfoDlP->items[objectIdx].initFormat;
+        ImageViewInfo.image = TexInfoDlP->items[objectIdx].ImageHandle;
+        ImageViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        ImageViewInfo.subresourceRange.levelCount = 1;
+        ImageViewInfo.subresourceRange.layerCount = 1;
+        ImageViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        CHK_VK(vkCreateImageView(vkRuntimeInfoP->device, &ImageViewInfo, NULL, &(scene1ObjectsDlP->items[objectIdx].DiffuseData.ImageView)));
+        scene1ObjectsDlP->items[objectIdx].DiffuseData.ImageSampler = Sampler;
+    }
+
+}
+
 void eng_createImageViews(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
     vkRuntimeInfoP->swapChainImageViewsP = (VkImageView*)malloc(vkRuntimeInfoP->imagesInFlightCount * sizeof(VkImageView));
     for(uint32_t imageIndex = 0; imageIndex < vkRuntimeInfoP->imagesInFlightCount; imageIndex++) {
-        VkImageViewCreateInfo imageViewCreateInfo;
+        VkImageViewCreateInfo imageViewCreateInfo = {0};
         imageViewCreateInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        imageViewCreateInfo.pNext                           = NULL;
-        imageViewCreateInfo.flags                           = 0;
-        imageViewCreateInfo.components.r                    = VK_COMPONENT_SWIZZLE_IDENTITY;
-        imageViewCreateInfo.components.g                    = VK_COMPONENT_SWIZZLE_IDENTITY;
-        imageViewCreateInfo.components.b                    = VK_COMPONENT_SWIZZLE_IDENTITY;
-        imageViewCreateInfo.components.a                    = VK_COMPONENT_SWIZZLE_IDENTITY;
         imageViewCreateInfo.format                          = (vkRuntimeInfoP->swapChainFormat).format;
         imageViewCreateInfo.subresourceRange.layerCount     = 1;
-        imageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
-        imageViewCreateInfo.subresourceRange.baseMipLevel   = 0;
         imageViewCreateInfo.subresourceRange.levelCount     = 1;
         imageViewCreateInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
         imageViewCreateInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D;
         imageViewCreateInfo.image                           = (vkRuntimeInfoP->swapChainImagesP)[imageIndex];
-
         CHK_VK(vkCreateImageView(vkRuntimeInfoP->device, &imageViewCreateInfo, NULL, &(vkRuntimeInfoP->swapChainImageViewsP[imageIndex])));
     }
 }
 
 void eng_createRenderPass(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
-    VkAttachmentDescription ColorAttachments = {0};
-    ColorAttachments.flags = 0;
-    //ColorAttachments.format=vkRuntimeInfoP->swapChainFormat;
-    ColorAttachments.format = (vkRuntimeInfoP->swapChainFormat).format;
-    ColorAttachments.samples = VK_SAMPLE_COUNT_1_BIT;
-    ColorAttachments.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    ColorAttachments.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    ColorAttachments.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    ColorAttachments.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    ColorAttachments.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    ColorAttachments.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VkAttachmentDescription ColorAttachment = {0};
+    ColorAttachment.format = (vkRuntimeInfoP->swapChainFormat).format;
+    ColorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    ColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    ColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    ColorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    ColorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    ColorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    ColorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
     VkAttachmentReference ColorAttachmentRef = {0};
     ColorAttachmentRef.attachment = 0;
     ColorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentDescription DepthAttachment = {0};
+    DepthAttachment.format = vkRuntimeInfoP->depthBufferFormat;
+    DepthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    DepthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    DepthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;       //when reading from the depth texture initialize undefined pixels with the clear value
+    DepthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    DepthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    DepthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    DepthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkAttachmentReference DepthAttachmentRef = {0};
+    DepthAttachmentRef.attachment = 1;
+    DepthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentDescription RenderPassAttachments[2];
+    RenderPassAttachments[ColorAttachmentRef.attachment] = ColorAttachment;
+    RenderPassAttachments[DepthAttachmentRef.attachment] = DepthAttachment;
 
     VkSubpassDescription subPasses = {0};
     subPasses.flags = 0;
     subPasses.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     subPasses.colorAttachmentCount = 1;
     subPasses.pColorAttachments = &ColorAttachmentRef;
+    subPasses.pDepthStencilAttachment = &DepthAttachmentRef;
 
     VkRenderPassCreateInfo RenderPassInfo = {0};
     RenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
@@ -1052,8 +1135,8 @@ void eng_createRenderPass(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
     RenderPassInfo.pNext = NULL;
     RenderPassInfo.dependencyCount = 0;
     RenderPassInfo.pDependencies = NULL;
-    RenderPassInfo.attachmentCount = 1;
-    RenderPassInfo.pAttachments = &ColorAttachments;
+    RenderPassInfo.attachmentCount = sizeof(RenderPassAttachments)/sizeof(RenderPassAttachments[0]);
+    RenderPassInfo.pAttachments = RenderPassAttachments;
     RenderPassInfo.subpassCount = 1;
     RenderPassInfo.pSubpasses = &subPasses;
 
@@ -1062,31 +1145,38 @@ void eng_createRenderPass(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
 }
 
 void eng_createDescriptorPoolAndSets(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
-    //Create Descriptor Pool
+    //Create const Descriptor Pool
     //It will hold one descriptor set for each frame in flight
     //to calculate the total pool size pPoolSizes will point to an array specifying the number for each descriptor type for the whole pool
-    VkDescriptorPoolSize DescriptorPoolSize = {0};
-    DescriptorPoolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    DescriptorPoolSize.descriptorCount = vkRuntimeInfoP->imagesInFlightCount; //all descriptors of !ALL! sets in this pool can only total up to two
+    VkDescriptorPoolSize DescriptorPoolSizesP[2] = {0};
+    DescriptorPoolSizesP[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    DescriptorPoolSizesP[0].descriptorCount = vkRuntimeInfoP->imagesInFlightCount * scene1ObjectsDlP->itemcnt; //all descriptors of !ALL! sets in this pool can only total up to two
+    DescriptorPoolSizesP[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    DescriptorPoolSizesP[1].descriptorCount = vkRuntimeInfoP->imagesInFlightCount * scene1ObjectsDlP->itemcnt; //all COMBINED_IMAGE_SAMPLER descriptors of !ALL! sets in this pool can only total up to this number
+
 
     VkDescriptorPoolCreateInfo DescriptorPoolInfo = {0};
     DescriptorPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    DescriptorPoolInfo.poolSizeCount = 1;
-    DescriptorPoolInfo.pPoolSizes = &DescriptorPoolSize;
-    DescriptorPoolInfo.maxSets = vkRuntimeInfoP->imagesInFlightCount; //the descriptor pool can store two sets
+    DescriptorPoolInfo.poolSizeCount = sizeof(DescriptorPoolSizesP)/sizeof(DescriptorPoolSizesP[0]);
+    DescriptorPoolInfo.pPoolSizes = DescriptorPoolSizesP;
+    DescriptorPoolInfo.maxSets = vkRuntimeInfoP->imagesInFlightCount * scene1ObjectsDlP->itemcnt; //the descriptor pool can store two sets
     CHK_VK(vkCreateDescriptorPool(vkRuntimeInfoP->device, &DescriptorPoolInfo, NULL, &(vkRuntimeInfoP->descriptorPool)));
 
-    VkDescriptorSetLayoutBinding LayoutBinding = {0};
-    LayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    LayoutBinding.binding = 0;  //for mvp in binding 0, for all frames this should keep that way
-    LayoutBinding.descriptorCount = 1;
-    LayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    VkDescriptorSetLayoutBinding LayoutBindingsP[2] = {0};
+    LayoutBindingsP[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    LayoutBindingsP[0].binding = 0;  //for mvp in binding 0, for all frames this should keep that way
+    LayoutBindingsP[0].descriptorCount = 1;
+    LayoutBindingsP[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    LayoutBindingsP[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    LayoutBindingsP[1].binding = 1;
+    LayoutBindingsP[1].descriptorCount = 1;
+    LayoutBindingsP[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 
     //Create descriptor layouts and fill sets
     VkDescriptorSetLayoutCreateInfo DescriptorSetLayoutInfo = {0};
     DescriptorSetLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    DescriptorSetLayoutInfo.bindingCount = 1;
-    DescriptorSetLayoutInfo.pBindings = &LayoutBinding;
+    DescriptorSetLayoutInfo.bindingCount = sizeof(LayoutBindingsP)/sizeof(LayoutBindingsP[0]);
+    DescriptorSetLayoutInfo.pBindings = LayoutBindingsP;
     vkRuntimeInfoP->descriptorSetLayoutP = (VkDescriptorSetLayout*)malloc(sizeof(VkDescriptorSetLayout));
     CHK_VK(vkCreateDescriptorSetLayout(vkRuntimeInfoP->device, &DescriptorSetLayoutInfo, NULL, vkRuntimeInfoP->descriptorSetLayoutP));
 
@@ -1094,13 +1184,14 @@ void eng_createDescriptorPoolAndSets(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
     VkDescriptorSetAllocateInfo DescriptorSetAllocateInfo = {0};
     DescriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     DescriptorSetAllocateInfo.descriptorPool = vkRuntimeInfoP->descriptorPool;
-    DescriptorSetAllocateInfo.descriptorSetCount = 1; //one mvp matrix and hence one descriptor set per frame in flight
+    DescriptorSetAllocateInfo.descriptorSetCount = 1;       //if we want all descriptors to have the same layout we have to call vkAllocateDescriptorSets for each one
     DescriptorSetAllocateInfo.pSetLayouts = vkRuntimeInfoP->descriptorSetLayoutP;
-    vkRuntimeInfoP->descriptorSetsP = (VkDescriptorSet*)malloc(vkRuntimeInfoP->imagesInFlightCount * sizeof(VkDescriptorSet));
-    for(uint32_t image = 0; image < vkRuntimeInfoP->imagesInFlightCount; image++) { //if the all generated sets need to have the same layout one needs to loop over the allocateDescriptorSets Function
-        CHK_VK(vkAllocateDescriptorSets(vkRuntimeInfoP->device, &DescriptorSetAllocateInfo, &(vkRuntimeInfoP->descriptorSetsP[image])));
+    vkRuntimeInfoP->descriptorSetsP = (VkDescriptorSet*)malloc(vkRuntimeInfoP->imagesInFlightCount * scene1ObjectsDlP->itemcnt * sizeof(VkDescriptorSet));
+    for(uint32_t imageIdx = 0; imageIdx < vkRuntimeInfoP->imagesInFlightCount; imageIdx++){
+        for(size_t objectIdx = 0; objectIdx < scene1ObjectsDlP->itemcnt; objectIdx++){
+            CHK_VK(vkAllocateDescriptorSets(vkRuntimeInfoP->device, &DescriptorSetAllocateInfo, &(vkRuntimeInfoP->descriptorSetsP[objectIdx + scene1ObjectsDlP->itemcnt * imageIdx])));
+        }
     }
-
 }
 
 void eng_createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
@@ -1180,7 +1271,7 @@ void eng_createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
     RasterizationInfo.polygonMode = VK_POLYGON_MODE_FILL;
     RasterizationInfo.lineWidth = 1.0f;
     RasterizationInfo.cullMode = VK_CULL_MODE_BACK_BIT;
-    RasterizationInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    RasterizationInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     RasterizationInfo.depthBiasEnable = VK_FALSE;
     RasterizationInfo.depthBiasConstantFactor = 0.0f;
     RasterizationInfo.depthBiasClamp = 0.0f;
@@ -1226,6 +1317,13 @@ void eng_createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
     ColorBlendInfo.blendConstants[2] = 0.0f;
     ColorBlendInfo.blendConstants[3] = 0.0f;
 
+    //Depth Stencil
+    VkPipelineDepthStencilStateCreateInfo DepthStencilInfo = {0};
+    DepthStencilInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    DepthStencilInfo.depthTestEnable = VK_TRUE;
+    DepthStencilInfo.depthWriteEnable = VK_TRUE;
+    DepthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS;
+
     //Pipeline Layout for Uniforms
     VkPipelineLayoutCreateInfo PipelineLayoutInfo = {0};
     PipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -1255,6 +1353,7 @@ void eng_createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
     PipelineInfo.pRasterizationState = &RasterizationInfo;
     PipelineInfo.pTessellationState = NULL;
     PipelineInfo.pViewportState = &PipelineViewportInfo;
+    PipelineInfo.pDepthStencilState = &DepthStencilInfo;
 
     PipelineInfo.layout = vkRuntimeInfoP->graphicsPipelineLayout;
     PipelineInfo.renderPass = vkRuntimeInfoP->renderPass;
@@ -1264,15 +1363,21 @@ void eng_createGraphicsPipeline(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
 
 void eng_createFramebuffers(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
     vkRuntimeInfoP->FramebufferP = malloc(sizeof(VkFramebuffer) * vkRuntimeInfoP->imagesInFlightCount);
+
+
+
     for(uint32_t framebufferIdx = 0; framebufferIdx < vkRuntimeInfoP->imagesInFlightCount; framebufferIdx++) {
+        VkImageView FramebufferAttachments[]={vkRuntimeInfoP->swapChainImageViewsP[framebufferIdx],
+                                              vkRuntimeInfoP->depthBufferImageViewsP[framebufferIdx]};
+
         VkFramebufferCreateInfo FramebufferInfo = {0};
         FramebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         FramebufferInfo.renderPass = vkRuntimeInfoP->renderPass;
         FramebufferInfo.height = vkRuntimeInfoP->swapChainImageExtent.height;
         FramebufferInfo.width = vkRuntimeInfoP->swapChainImageExtent.width;
         FramebufferInfo.layers = 1;
-        FramebufferInfo.attachmentCount = 1;
-        FramebufferInfo.pAttachments = &(vkRuntimeInfoP->swapChainImageViewsP[framebufferIdx]);
+        FramebufferInfo.attachmentCount = sizeof(FramebufferAttachments)/sizeof(FramebufferAttachments[0]);
+        FramebufferInfo.pAttachments=FramebufferAttachments;
         CHK_VK(vkCreateFramebuffer(vkRuntimeInfoP->device, &FramebufferInfo, NULL, &(vkRuntimeInfoP->FramebufferP[framebufferIdx])));
     }
 }
@@ -1292,12 +1397,17 @@ void eng_createRenderCommandBuffers(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
         CommandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         CHK_VK(vkBeginCommandBuffer(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx], &CommandBufferBeginInfo));
 
-        VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+        //Clear values setup
+
+        VkClearValue colorClearVal = {.color={{0.0f, 0.0f, 0.0f, 1.0f}}};
+        VkClearValue depthClearVal = {.depthStencil={1.0f, 0}};
+        VkClearValue ClearValues[] = {colorClearVal, depthClearVal};
+
         VkRenderPassBeginInfo RenderPassInfo = {0};
         RenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         RenderPassInfo.framebuffer = vkRuntimeInfoP->FramebufferP[CommandBufferIdx];
-        RenderPassInfo.clearValueCount = 1;
-        RenderPassInfo.pClearValues = &clearColor;
+        RenderPassInfo.clearValueCount = sizeof(ClearValues)/sizeof(ClearValues[0]);
+        RenderPassInfo.pClearValues = ClearValues;
         RenderPassInfo.renderArea.extent = vkRuntimeInfoP->swapChainImageExtent;
         RenderPassInfo.renderArea.offset.x = 0;
         RenderPassInfo.renderArea.offset.y = 0;
@@ -1305,10 +1415,11 @@ void eng_createRenderCommandBuffers(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
         vkCmdBeginRenderPass(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx], &RenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         for(size_t ObjectNum = 0; ObjectNum < scene1ObjectsDlP->itemcnt; ObjectNum++) {
             struct eng3dObject*  currentObjectP = &(scene1ObjectsDlP->items[ObjectNum]);
-            VkDeviceSize* PNUBufferOffsetP = &(currentObjectP->PosNormUvInBufOffset);
-            vkCmdBindVertexBuffers(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx], 0, 1, &(currentObjectP->vtxBufferHandle), PNUBufferOffsetP);
-            vkCmdBindIndexBuffer(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx], currentObjectP->vtxBufferHandle, currentObjectP->IdxInBufOffset, VK_INDEX_TYPE_UINT32);
-            vkCmdBindDescriptorSets(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx], VK_PIPELINE_BIND_POINT_GRAPHICS, vkRuntimeInfoP->graphicsPipelineLayout, 0, 1, &(vkRuntimeInfoP->descriptorSetsP[CommandBufferIdx]), 0, NULL);
+            VkDeviceSize* PNUBufferOffsetP = &(currentObjectP->PosAndUvData.InBufferOffset);
+            vkCmdBindVertexBuffers(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx], 0, 1, &(currentObjectP->PosAndUvData.BufferHandle), PNUBufferOffsetP);
+            vkCmdBindIndexBuffer(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx], currentObjectP->IdxData.BufferHandle, currentObjectP->IdxData.InBufferOffset, VK_INDEX_TYPE_UINT32);
+            VkDescriptorSet* DescriptorSetWithOffsetP=&(vkRuntimeInfoP->descriptorSetsP[CommandBufferIdx * scene1ObjectsDlP->itemcnt + ObjectNum]);
+            vkCmdBindDescriptorSets(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx], VK_PIPELINE_BIND_POINT_GRAPHICS, vkRuntimeInfoP->graphicsPipelineLayout, 0, 1, DescriptorSetWithOffsetP, 0, NULL);
             //vkCmdBindDescriptorSets(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx],VK_PIPELINE_BIND_POINT_GRAPHICS,vkRuntimeInfoP->graphicsPipelineLayout,0,1,vkRuntimeInfoP->descriptorSetsP,0,NULL);
             vkCmdBindPipeline(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx], VK_PIPELINE_BIND_POINT_GRAPHICS, vkRuntimeInfoP->graphicsPipeline);
             vkCmdDrawIndexed(vkRuntimeInfoP->CommandbufferP[CommandBufferIdx], currentObjectP->vertexCount, 1, 0, 0, 0);
@@ -1353,44 +1464,50 @@ void eng_draw(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
         exit(1);
     }
     CHK_VK(vkResetFences(vkRuntimeInfoP->device, 1, (vkRuntimeInfoP->ImageAlreadyProcessingFenceP) + nextImageIdx));
+    for(size_t modelIdx = 0; modelIdx < scene1ObjectsDlP->itemcnt; modelIdx++){
+        //create new MVP
+        //Model
+        mat4x4 MMatrix;
+        mat4x4 MVPMatrix;
+        mat4x4_identity(MMatrix);
+        mat4x4_rotate_Z(MVPMatrix, MMatrix, angle);
+        angle += 0.01f;
 
-    //create new MVP
-    //Model
-    mat4x4 MMatrix;
-    mat4x4 MVPMatrix;
-    mat4x4_identity(MMatrix);
-    mat4x4_rotate_X(MVPMatrix, MMatrix, angle);
-    angle += 0.01f;
-
-    //View
-    mat4x4 VMatrix;
-    vec3 eye = {2.0f, 0.0f, 2.0f};
-    vec3 center = {0.0f, 0.0f, 0.0f};
-    vec3 up = {0.0f, 0.0f, 1.0f};
-    mat4x4_look_at(VMatrix, eye, center, up);
-    /*
-    for(int row=0;row<4;row++){
-        for(int col=0;col<4;col++){
-            printf("%f \t",VMatrix[row][col]);
+        if(modelIdx==1){
+            mat4x4_translate_in_place(MVPMatrix,0.5f,0.0f,0.0f);
         }
-        printf("\n");
+        if(modelIdx==2){
+            mat4x4_translate_in_place(MVPMatrix,0.0f,0.5f,0.0f);
+        }
+        //View
+        mat4x4 VMatrix;
+        vec3 eye = {-1.5f, 0.0f, 1.0f};
+        vec3 center = {0.0f, 0.0f, 0.0f};
+        vec3 up = {0.0f, 0.0f, 1.0f};
+        mat4x4_look_at_vk(VMatrix, eye, center, up);
+
+        /*for(int row=0;row<4;row++){
+            for(int col=0;col<4;col++){
+                printf("%f \t",VMatrix[row][col]);
+            }
+            printf("\n");
+        }
+        printf("\n");*/
+        mat4x4_mul(MVPMatrix, VMatrix, MVPMatrix);
+
+        //projection
+        mat4x4 PMatrix;
+        float aspRatio = ((float)vkRuntimeInfoP->swapChainImageExtent.width) / vkRuntimeInfoP->swapChainImageExtent.height;
+        mat4x4_perspective_vk(PMatrix, 1.6f, aspRatio, 0.1f, 10.0f);
+        mat4x4_mul(MVPMatrix, PMatrix, MVPMatrix);
+
+        //copy in buffer
+        void* mappedUniformSliceP;
+        CHK_VK(vkMapMemory(vkRuntimeInfoP->device, vkRuntimeInfoP->FastUpdateUniformAllocP->Memory, sizeof(mat4x4)*(modelIdx + scene1ObjectsDlP->itemcnt*nextImageIdx), sizeof(mat4x4), 0, &mappedUniformSliceP));
+        memcpy(mappedUniformSliceP, &(MVPMatrix[0][0]), sizeof(mat4x4));
+        //TODO flush memory
+        vkUnmapMemory(vkRuntimeInfoP->device, vkRuntimeInfoP->FastUpdateUniformAllocP->Memory);
     }
-    printf("\n");*/
-    mat4x4_mul(MVPMatrix, VMatrix, MVPMatrix);
-
-    //projection
-    mat4x4 PMatrix;
-    float aspRatio = ((float)vkRuntimeInfoP->swapChainImageExtent.width) / vkRuntimeInfoP->swapChainImageExtent.height;
-    mat4x4_perspective(PMatrix, 1.6f, aspRatio, 0.1f, 10.0f);
-    mat4x4_mul(MVPMatrix, PMatrix, MVPMatrix);
-
-    //copy in buffer
-    void* mappedUniformSliceP;
-    CHK_VK(vkMapMemory(vkRuntimeInfoP->device, vkRuntimeInfoP->FastUpdateUniformAllocP->Memory, sizeof(mat4x4)*nextImageIdx, sizeof(mat4x4), 0, &mappedUniformSliceP));
-    memcpy(mappedUniformSliceP, &(MVPMatrix[0][0]), sizeof(mat4x4));
-    //TODO flush memory
-    vkUnmapMemory(vkRuntimeInfoP->device, vkRuntimeInfoP->FastUpdateUniformAllocP->Memory);
-
     //Get next image from swapChain
     CHK_VK(vkAcquireNextImageKHR(vkRuntimeInfoP->device, vkRuntimeInfoP->swapChain, UINT64_MAX, (vkRuntimeInfoP->imageAvailableSemaphoreP)[nextImageIdx], VK_NULL_HANDLE, &nextImageIdx));
 
@@ -1419,23 +1536,88 @@ void eng_draw(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
     nextImageIdx %= vkRuntimeInfoP->imagesInFlightCount;
 }
 
-void eng_writeDescriptorSets(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
+void eng_writeConstDescriptorSet(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
+    VkWriteDescriptorSet* ConstantWriteDescriptorSetP = (VkWriteDescriptorSet*)malloc(sizeof(VkWriteDescriptorSet) * 2 * vkRuntimeInfoP->imagesInFlightCount * scene1ObjectsDlP->itemcnt);
+    memset(ConstantWriteDescriptorSetP,0,sizeof(VkWriteDescriptorSet) * 2 * vkRuntimeInfoP->imagesInFlightCount * scene1ObjectsDlP->itemcnt);
     for(uint32_t image = 0; image < vkRuntimeInfoP->imagesInFlightCount; image++) {
-        //Write descriptor set
-        VkDescriptorBufferInfo BufferInfo;
-        BufferInfo.buffer = vkRuntimeInfoP->FastUpdateUniformAllocP->BufAllocInfoDlP->items[0].BufferHandle;
-        BufferInfo.offset = sizeof(mat4x4) * image;
-        BufferInfo.range = sizeof(mat4x4);
+        for(size_t objectIdx = 0; objectIdx < scene1ObjectsDlP->itemcnt; objectIdx++){
+            //Descriptor binding 0 is for per object mvpMatrix
+            VkDescriptorBufferInfo UniformBufferInfo;
+            UniformBufferInfo.buffer = vkRuntimeInfoP->FastUpdateUniformAllocP->BufAllocInfoDlP->items[0].BufferHandle;
+            UniformBufferInfo.offset = sizeof(mat4x4) * (image * scene1ObjectsDlP->itemcnt + objectIdx);
+            UniformBufferInfo.range = sizeof(mat4x4);
+            uint32_t currWriteDescrPairOffset=(image * scene1ObjectsDlP->itemcnt + objectIdx)*2;
+            ConstantWriteDescriptorSetP[currWriteDescrPairOffset+0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            ConstantWriteDescriptorSetP[currWriteDescrPairOffset+0].descriptorCount = 1;
+            ConstantWriteDescriptorSetP[currWriteDescrPairOffset+0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            ConstantWriteDescriptorSetP[currWriteDescrPairOffset+0].dstBinding = 0;
+            ConstantWriteDescriptorSetP[currWriteDescrPairOffset+0].dstSet = vkRuntimeInfoP->descriptorSetsP[image * scene1ObjectsDlP->itemcnt + objectIdx];
+            ConstantWriteDescriptorSetP[currWriteDescrPairOffset+0].pBufferInfo = &UniformBufferInfo;
 
-        VkWriteDescriptorSet WriteDescriptorSet = {0};
-        WriteDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        WriteDescriptorSet.descriptorCount = 1;
-        WriteDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        WriteDescriptorSet.dstBinding = 0;
-        WriteDescriptorSet.dstSet = vkRuntimeInfoP->descriptorSetsP[image];
-        WriteDescriptorSet.pBufferInfo = &BufferInfo;
-        vkUpdateDescriptorSets(vkRuntimeInfoP->device, 1, &WriteDescriptorSet, 0, NULL);
+            VkDescriptorImageInfo DiffuseTextureInfo;
+            DiffuseTextureInfo.sampler = scene1ObjectsDlP->items[objectIdx].DiffuseData.ImageSampler;
+            DiffuseTextureInfo.imageView = scene1ObjectsDlP->items[objectIdx].DiffuseData.ImageView;
+            DiffuseTextureInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            ConstantWriteDescriptorSetP[currWriteDescrPairOffset+1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            ConstantWriteDescriptorSetP[currWriteDescrPairOffset+1].descriptorCount = 1;
+            ConstantWriteDescriptorSetP[currWriteDescrPairOffset+1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            ConstantWriteDescriptorSetP[currWriteDescrPairOffset+1].dstBinding = 1;
+            ConstantWriteDescriptorSetP[currWriteDescrPairOffset+1].dstSet = vkRuntimeInfoP->descriptorSetsP[image * scene1ObjectsDlP->itemcnt + objectIdx];
+            ConstantWriteDescriptorSetP[currWriteDescrPairOffset+1].pImageInfo = &DiffuseTextureInfo;
+            vkUpdateDescriptorSets(vkRuntimeInfoP->device, 2, &(ConstantWriteDescriptorSetP[currWriteDescrPairOffset]), 0, NULL);
+        }
     }
+}
+
+void eng_createDepthBuffers(struct VulkanRuntimeInfo* vkRuntimeInfoP){
+    struct eng_FormatProps MinDepthBufferFormatProps = {0};
+    MinDepthBufferFormatProps.ImageTiling                        = VK_IMAGE_TILING_OPTIMAL;
+    MinDepthBufferFormatProps.FormatFeatures                     = VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    MinDepthBufferFormatProps.ImageUsageFlags                    = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    MinDepthBufferFormatProps.ImageType                          = VK_IMAGE_TYPE_2D;
+    MinDepthBufferFormatProps.ImageFormatProperties.maxMipLevels = 1;
+    VkFormat depthBufferFormat=_eng_selectSupportedVkFormat(vkRuntimeInfoP,Dl_VkFormat_initWithDepthFormats(),&MinDepthBufferFormatProps,NULL);
+
+    //After calling _eng_selectSupportedVkFormat will no longer store the minimalDepthBuffer requirements, but the maximum available properties for such a format
+
+
+    //allocate memory for image and imageView handles
+    vkRuntimeInfoP->depthBufferImagesP = (VkImage*)malloc(sizeof(VkImage) * vkRuntimeInfoP->imagesInFlightCount);
+    vkRuntimeInfoP->depthBufferImageViewsP = (VkImageView*)malloc(sizeof(VkImageView) * vkRuntimeInfoP->imagesInFlightCount);
+
+    //allocate memory for depth images
+    struct eng_AllocBlock DepthImageAllocBlock = {0};
+    DepthImageAllocBlock.TexAllocInfoDlP = Dl_PerTexData_alloc(vkRuntimeInfoP->imagesInFlightCount,NULL);
+
+    for(uint32_t swapChainImg = 0; swapChainImg < vkRuntimeInfoP->imagesInFlightCount; swapChainImg++){
+        DepthImageAllocBlock.TexAllocInfoDlP->items[swapChainImg].initContentExtentInPx.depth = 1;
+        DepthImageAllocBlock.TexAllocInfoDlP->items[swapChainImg].initContentExtentInPx.width = vkRuntimeInfoP->swapChainImageExtent.width;
+        DepthImageAllocBlock.TexAllocInfoDlP->items[swapChainImg].initContentExtentInPx.height = vkRuntimeInfoP->swapChainImageExtent.height;
+        DepthImageAllocBlock.TexAllocInfoDlP->items[swapChainImg].initFormat            = depthBufferFormat;
+        DepthImageAllocBlock.TexAllocInfoDlP->items[swapChainImg].initTiling            = MinDepthBufferFormatProps.ImageTiling;
+        DepthImageAllocBlock.TexAllocInfoDlP->items[swapChainImg].initUsage             = MinDepthBufferFormatProps.ImageUsageFlags;
+    }
+    eng_AllocBlock_createHandlesAndGetMemReq (vkRuntimeInfoP, &DepthImageAllocBlock);
+    eng_AllocBlock_alignAndCalcSizeAndOffsets(vkRuntimeInfoP, &DepthImageAllocBlock);
+    eng_AllocBlock_setFastDevLocalAlloc      (vkRuntimeInfoP, &DepthImageAllocBlock, NULL);
+    eng_AllocBlock_allocAndBindMem           (vkRuntimeInfoP, &DepthImageAllocBlock);
+
+    //create image views
+    VkImageViewCreateInfo ImageViewInfo = {0};
+    ImageViewInfo.sType                       = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    ImageViewInfo.format                      = depthBufferFormat;
+    ImageViewInfo.viewType                    = VK_IMAGE_VIEW_TYPE_2D;
+    ImageViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    ImageViewInfo.subresourceRange.layerCount = 1;
+    ImageViewInfo.subresourceRange.levelCount = 1;
+    for(uint32_t swapChainImg = 0; swapChainImg < vkRuntimeInfoP->imagesInFlightCount; swapChainImg++){
+        vkRuntimeInfoP->depthBufferImagesP[swapChainImg] = DepthImageAllocBlock.TexAllocInfoDlP->items[swapChainImg].ImageHandle;
+        ImageViewInfo.image = vkRuntimeInfoP->depthBufferImagesP[swapChainImg];
+        vkCreateImageView(vkRuntimeInfoP->device, &ImageViewInfo, NULL, &(vkRuntimeInfoP->depthBufferImageViewsP[swapChainImg]));
+    }
+
+    //TODO free DepthImageAllocBlock
+    vkRuntimeInfoP->depthBufferFormat=depthBufferFormat;
 }
 
 int main(int argc, char** argv) {
@@ -1455,7 +1637,7 @@ int main(int argc, char** argv) {
     xmlTreeElement* applicationNameXmlElmntP = getFirstSubelementWithASCII(eng_setupxmlP, "ApplicationName", NULL, NULL, xmltype_tag, 1);
     char* applicationNameCharP = Dl_utf32Char_toStringAlloc(getNthChildWithType(applicationNameXmlElmntP, 0, xmltype_chardata)->charData);
     struct VulkanRuntimeInfo engVkRuntimeInfo = {0};
-    engVkRuntimeInfo.mainWindowP = glfwCreateWindow(1920, 1080, applicationNameCharP, NULL, NULL);
+    engVkRuntimeInfo.mainWindowP = glfwCreateWindow(2*1920, 2*1080, applicationNameCharP, NULL, NULL);
     free(applicationNameCharP);
 
     if(GLFW_FALSE == glfwVulkanSupported()) {
@@ -1469,21 +1651,23 @@ int main(int argc, char** argv) {
     eng_createSurface(&engVkRuntimeInfo);
     eng_createDevice(&engVkRuntimeInfo, deviceRankingP);
     eng_createSwapChain(&engVkRuntimeInfo);
+    eng_createDepthBuffers(&engVkRuntimeInfo);                              //depends on eng_createSwapChain
     eng_createImageViews(&engVkRuntimeInfo);                                //depends on eng_createSwapChain
     eng_createShaderModule(&engVkRuntimeInfo, "./res/shader1.xml");         //depends on eng_createDevice
-    eng_createRenderPass(&engVkRuntimeInfo);                                //depends on eng_createSwapChain
-    eng_createDescriptorPoolAndSets(&engVkRuntimeInfo);                     //depends on eng_createSwapChain
-    eng_createGraphicsPipeline(&engVkRuntimeInfo);                          //depends on eng_createShaderModule and eng_createImageViews and eng_createDescriptorPoolAndSets
-    eng_createFramebuffers(&engVkRuntimeInfo);                              //depends on eng_createRenderPass   and eng_createImageViews
+    eng_createRenderPass(&engVkRuntimeInfo);                                //depends on eng_createSwapChain and eng_createDepthBuffers
+
     eng_createCommandPool(&engVkRuntimeInfo);                               //depends on eng_createDevice
-    Dl_modelPathAndName* modelPathAndNameDlP = Dl_modelPathAndName_alloc(1, NULL);
-    modelPathAndNameDlP->items[0].pathString = Dl_utf32Char_fromString("./res/cube.dae");
-    modelPathAndNameDlP->items[0].modelName = Dl_utf32Char_fromString("Cube-mesh");
-    //modelPathAndNameDlP->items[1].pathString=Dl_utf32Char_fromString("./res/cube_jank.dae");
-    //modelPathAndNameDlP->items[1].modelName =Dl_utf32Char_fromString("Cube-mesh");
+    Dl_modelPathAndName* modelPathAndNameDlP = Dl_modelPathAndName_alloc(2, NULL);
+    modelPathAndNameDlP->items[0].pathString = Dl_utf32Char_fromString("./res/earth.dae");
+    modelPathAndNameDlP->items[0].modelName  = Dl_utf32Char_fromString("Earth_Diffuse_6K-mesh");
+    modelPathAndNameDlP->items[1].pathString = Dl_utf32Char_fromString("./res/mars.dae");
+    modelPathAndNameDlP->items[1].modelName  = Dl_utf32Char_fromString("Mars_Diffuse_6K-mesh");
 
     eng_load_static_models(&engVkRuntimeInfo, modelPathAndNameDlP);         //depends on eng_createCommandPool and creates vertex buffer
-    eng_writeDescriptorSets(&engVkRuntimeInfo);                             //depends on eng_load_static_models
+    eng_createDescriptorPoolAndSets(&engVkRuntimeInfo);                     //depends on eng_createSwapChain and eng_load_static_models
+    eng_writeConstDescriptorSet(&engVkRuntimeInfo);                         //depends on eng_load_static_models
+    eng_createGraphicsPipeline(&engVkRuntimeInfo);                          //depends on eng_createShaderModule and eng_createImageViews and eng_createDescriptorPoolAndSets
+    eng_createFramebuffers(&engVkRuntimeInfo);                              //depends on eng_createRenderPass   and eng_createImageViews
     eng_createRenderCommandBuffers(&engVkRuntimeInfo);                      //depends on eng_createCommandPool and eng_createFramebuffers and eng_load_static_models and createPipeline
     eng_createSynchronizationPrimitives(&engVkRuntimeInfo);
     dprintf(DBGT_INFO, "Got here");

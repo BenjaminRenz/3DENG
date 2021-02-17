@@ -6,21 +6,23 @@
 
 struct VulkanRuntimeInfo;
 
-struct eng_PerTexAllocInfo{
+struct eng_PerTexData{
     //this field must be filled before image handle creation
     VkExtent3D              initContentExtentInPx;
     VkFormat                initFormat;
     VkImageTiling           initTiling;
     VkImageUsageFlags       initUsage;
+    //there fields must be filled before view and sampler creation
+
     //the fields below are filled while creating the image handle
     VkImage                 ImageHandle;
     VkDeviceSize            reqAllocSize;
     //the fields below are only filled while allocating and binding the image to memory
     VkDeviceSize            OffsetInMemoryInBytes;
 };
-DlTypedef_plain(PerTexAllocInfo,struct eng_PerTexAllocInfo);
+DlTypedef_plain(PerTexData,struct eng_PerTexData);
 
-struct eng_PerBufAllocInfo{
+struct eng_PerBufData{
     //this field must be filled before buffer handle creation
     VkDeviceSize            initContentSizeInBytes;
     VkBufferUsageFlags      initUsage;
@@ -30,7 +32,7 @@ struct eng_PerBufAllocInfo{
     //the fields below are only filled while allocating and binding the buffer to memory
     VkDeviceSize            OffsetInMemoryInBytes;
 };
-DlTypedef_plain(PerBufAllocInfo,struct eng_PerBufAllocInfo);
+DlTypedef_plain(PerBufData,struct eng_PerBufData);
 
 struct eng_AllocBlock{
     VkDeviceSize            alignment;
@@ -39,8 +41,8 @@ struct eng_AllocBlock{
     VkDeviceMemory          Memory;
     VkDeviceSize            totalAllocSize;
     VkMemoryPropertyFlags   MemoryFlags;
-    Dl_PerBufAllocInfo*     BufAllocInfoDlP;        //either one of BufAllocInfoDlP or TexAllocInfoDlP is a nullptr
-    Dl_PerTexAllocInfo*     TexAllocInfoDlP;
+    Dl_PerBufData*     BufAllocInfoDlP;        //either one of BufAllocInfoDlP or TexAllocInfoDlP is a nullptr
+    Dl_PerTexData*     TexAllocInfoDlP;
 };
 
 void eng_AllocBlock_createHandlesAndGetMemReq(struct VulkanRuntimeInfo* vkRuntimeInfoP,struct eng_AllocBlock* AllocBlockP);

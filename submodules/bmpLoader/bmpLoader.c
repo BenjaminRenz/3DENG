@@ -33,7 +33,7 @@ uint16_t _bmpLoader_uint16_t_from_le_file(FILE* FileP, int bigEndianFlag) {
 }
 
 //output format can be specified as "ARGB" or "BGGR" or "RGB0" for padding
-struct TextureData bmpLoader_load(char* filepathString, char* outputFormatString, char pack32toogle) {
+struct ImageData bmpLoader_load(char* filepathString, char* outputFormatString, char pack32toogle) {
     //argument error handling
     if(!filepathString) {
         dprintf(DBGT_ERROR, "no filepath specified");
@@ -43,7 +43,7 @@ struct TextureData bmpLoader_load(char* filepathString, char* outputFormatString
         dprintf(DBGT_ERROR, "no format string specified");
         exit(1);
     }
-    char length = 0;
+    unsigned char length = 0;
     while(outputFormatString[length]) {
         length++;
     }
@@ -52,7 +52,7 @@ struct TextureData bmpLoader_load(char* filepathString, char* outputFormatString
         exit(1);
     }
     char* editableFormatString = (char*)malloc(4 * sizeof(char));
-    struct TextureData OutputData;
+    struct ImageData OutputData;
     FILE* FileP = fopen(filepathString, "rb");
     if(FileP == NULL) {
         dprintf(DBGT_ERROR, "No file under path %s found", filepathString);
@@ -85,16 +85,16 @@ struct TextureData bmpLoader_load(char* filepathString, char* outputFormatString
     fseek(FileP, 10, SEEK_SET); //Jump to 10bytes after the start of the file
     uint32_t BitmapOffset = _bmpLoader_uint32_t_from_le_file(FileP, bigEndianFlag);
     uint32_t biWidth = _bmpLoader_uint32_t_from_le_file(FileP, bigEndianFlag);
-    if(biWidth != 124 && biWidth != 108) {
-        dprintf(DBGT_ERROR, "BitmapHeader is not BITMAPV5HEADER, size %d", biWidth);
+    if(biWidth != 124 && biWidth != 108 && biWidth != 40) {
+        dprintf(DBGT_ERROR, "BitmapHeader is not V5, V4 or V3, size was: %d", biWidth);
         exit(1);
     }
+    uint32_t width = _bmpLoader_uint32_t_from_le_file(FileP, bigEndianFlag);
+    OutputData.width = width;
     uint32_t tempHeight = _bmpLoader_uint32_t_from_le_file(FileP, bigEndianFlag);
     int32_t height = *((int32_t*)(&tempHeight)); //Important leave height as int32_t, because negative height means top down BMP
     uint32_t absHeight = abs(height);
     OutputData.height = absHeight;
-    uint32_t width = _bmpLoader_uint32_t_from_le_file(FileP, bigEndianFlag);
-    OutputData.width = width;
     dprintf(DBGT_INFO, "BMP resolution %d x %d", width, abs(height));
     uint16_t biPlanes = _bmpLoader_uint16_t_from_le_file(FileP, bigEndianFlag);
     if(biPlanes != 1) {
@@ -131,6 +131,9 @@ struct TextureData bmpLoader_load(char* filepathString, char* outputFormatString
         break;
     case 3:
         dprintf(DBGT_INFO, "Compression type: Bitfields/BI_BITFIELDS");
+        break;
+    case 6:
+        dprintf(DBGT_INFO, "Compression type: Bitfields/BI_ALPHABITFIELDS");
         break;
     default:
         dprintf(DBGT_ERROR, "Unsupported compression");
@@ -171,29 +174,39 @@ struct TextureData bmpLoader_load(char* filepathString, char* outputFormatString
         }
     }
 
-    if(BitmapCompression == 3) { //bitfields for rgba TODO check if this works????
-        for(int channelIdx = 0; channelIdx < 4; channelIdx++) {
-            uint32_t color_channel_mask = _bmpLoader_uint32_t_from_le_file(FileP, bigEndianFlag);
-            switch(color_channel_mask) {   //read shift value for channelIdx
-            case 0xFF000000:
-                colorChannelSrcMask[3] = channelBitmaskOrder[channelIdx];
-                break;
-            case 0x00FF0000:
-                colorChannelSrcMask[2] = channelBitmaskOrder[channelIdx];
-                break;
-            case 0x0000FF00:
-                colorChannelSrcMask[1] = channelBitmaskOrder[channelIdx];
-                break;
-            case 0x000000FF:
-                colorChannelSrcMask[0] = channelBitmaskOrder[channelIdx];
-                break;
-            case 0x00:      //for xRGB, where the alpha channel is ignored
-                break;
-            default:
-                dprintf(DBGT_ERROR, "Error: Invalid bitmask,%x", color_channel_mask);
-                exit(1);
-                break;
-            }
+    //Parse Bitfields if applicable
+    char numberOfBitfields=0;
+    if(BitmapCompression==3){
+        if(biWidth==40){
+            numberOfBitfields=3;    //bitmap v3 only supports RGB bitmasks
+        }else{
+            numberOfBitfields=4;
+        }
+    }
+    if(BitmapCompression==6){
+        numberOfBitfields=4;
+    }
+    for(int channelIdx = 0; channelIdx < numberOfBitfields; channelIdx++) {
+        uint32_t color_channel_mask = _bmpLoader_uint32_t_from_le_file(FileP, bigEndianFlag);
+        switch(color_channel_mask) {   //read shift value for channelIdx
+        case 0xFF000000:
+            colorChannelSrcMask[3] = channelBitmaskOrder[channelIdx];
+            break;
+        case 0x00FF0000:
+            colorChannelSrcMask[2] = channelBitmaskOrder[channelIdx];
+            break;
+        case 0x0000FF00:
+            colorChannelSrcMask[1] = channelBitmaskOrder[channelIdx];
+            break;
+        case 0x000000FF:
+            colorChannelSrcMask[0] = channelBitmaskOrder[channelIdx];
+            break;
+        case 0x00:      //for xRGB, where the alpha channel is ignored
+            break;
+        default:
+            dprintf(DBGT_ERROR, "Error: Invalid bitmask,%x", color_channel_mask);
+            exit(1);
+            break;
         }
     }
 
@@ -233,9 +246,9 @@ struct TextureData bmpLoader_load(char* filepathString, char* outputFormatString
             }
             //top down or bottom up image
             if(height < 0) {
-                imageOutputP[outputColumnPos * width + outputRowPos] = resultPixelData;
-            } else {
                 imageOutputP[((absHeight - 1) - outputColumnPos) * width + outputRowPos] = resultPixelData;
+            } else {
+                imageOutputP[outputColumnPos * width + outputRowPos] = resultPixelData;
             }
             //realign at end of row
             if((readBufferOffset % sizeOfAlignedRowInBytes) >= sizeOfUnalignedRowInBytes) {
