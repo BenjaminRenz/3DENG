@@ -16,7 +16,7 @@
 #include "dynList/dynList.h"
 
 #include "vkEngine/core.h"
-
+#include "solSysSim/solSysSim.h"
 
 
 uint32_t eng_get_version_number_from_xmlemnt(xmlTreeElement* currentReqXmlP);
@@ -1107,7 +1107,7 @@ void eng_createRenderPass(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
     VkAttachmentDescription DepthAttachment = {0};
     DepthAttachment.format = vkRuntimeInfoP->depthBufferFormat;
     DepthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    DepthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    DepthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ;
     DepthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;       //when reading from the depth texture initialize undefined pixels with the clear value
     DepthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     DepthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -1116,7 +1116,7 @@ void eng_createRenderPass(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
 
     VkAttachmentReference DepthAttachmentRef = {0};
     DepthAttachmentRef.attachment = 1;
-    DepthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    DepthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
     VkAttachmentDescription RenderPassAttachments[2];
     RenderPassAttachments[ColorAttachmentRef.attachment] = ColorAttachment;
@@ -1455,8 +1455,27 @@ void error_callback(int code, const char* description) {
     dprintf(DBGT_ERROR, "Error in glfw code: %d, \n String %s", code, description);
 }
 
-void eng_draw(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
-    static float angle = 0;
+
+volatile int rotateUpDown=0;
+volatile int rotateLeftRight=0;
+volatile float radiusObserver=20.0f; // in astronomical units
+
+
+float updateFrametime() {             //Get the current time with glfwGetTime and subtract last time to return deltatime
+    static double last_glfw_time = 0.0;
+    if(last_glfw_time == 0.0){
+        last_glfw_time = glfwGetTime();
+    }
+    double current_glfw_time;
+    current_glfw_time = glfwGetTime();
+    float delta = (float)(current_glfw_time - last_glfw_time);
+    last_glfw_time = current_glfw_time;
+    return delta;
+}
+
+#define rotationspeedMulti (0.5)
+#define MATH_PI 3.141592653589793
+void eng_draw(struct VulkanRuntimeInfo* vkRuntimeInfoP, Dl_MAT4* ModelMatricesDlP) {
     static uint32_t nextImageIdx = 0;
     //Work
     if(vkWaitForFences(vkRuntimeInfoP->device, 1, (vkRuntimeInfoP->ImageAlreadyProcessingFenceP) + nextImageIdx, VK_TRUE, UINT64_MAX)) {
@@ -1464,24 +1483,31 @@ void eng_draw(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
         exit(1);
     }
     CHK_VK(vkResetFences(vkRuntimeInfoP->device, 1, (vkRuntimeInfoP->ImageAlreadyProcessingFenceP) + nextImageIdx));
+
+    solSim_updateModelMatrices(ModelMatricesDlP);
+    static float theta = MATH_PI/2;
+    static float phi   = 0.0f;
+    float frametime = updateFrametime();
+    if(rotateUpDown){
+        theta-=frametime * rotateUpDown * rotationspeedMulti;
+        theta=clamp_float(0.1f, theta, MATH_PI - 0.1f);
+    }
+    if(rotateLeftRight){
+        phi-=frametime* rotateLeftRight * rotationspeedMulti;
+        phi=fmod(phi, 2*MATH_PI);
+    }
+
     for(size_t modelIdx = 0; modelIdx < scene1ObjectsDlP->itemcnt; modelIdx++){
         //create new MVP
         //Model
-        mat4x4 MMatrix;
-        mat4x4 MVPMatrix;
-        mat4x4_identity(MMatrix);
-        mat4x4_rotate_Z(MVPMatrix, MMatrix, angle);
-        angle += 0.01f;
 
-        if(modelIdx==1){
-            mat4x4_translate_in_place(MVPMatrix,0.5f,0.0f,0.0f);
-        }
-        if(modelIdx==2){
-            mat4x4_translate_in_place(MVPMatrix,0.0f,0.5f,0.0f);
-        }
+
         //View
         mat4x4 VMatrix;
-        vec3 eye = {-1.5f, 0.0f, 1.0f};
+        vec3 eye;
+        eye[0] = radiusObserver*cos(phi)*sin(theta);
+        eye[1] = radiusObserver*sin(phi)*sin(theta);
+        eye[2] = radiusObserver*cos(theta);
         vec3 center = {0.0f, 0.0f, 0.0f};
         vec3 up = {0.0f, 0.0f, 1.0f};
         mat4x4_look_at_vk(VMatrix, eye, center, up);
@@ -1493,12 +1519,13 @@ void eng_draw(struct VulkanRuntimeInfo* vkRuntimeInfoP) {
             printf("\n");
         }
         printf("\n");*/
-        mat4x4_mul(MVPMatrix, VMatrix, MVPMatrix);
+        mat4x4 MVPMatrix;
+        mat4x4_mul(MVPMatrix, VMatrix, ModelMatricesDlP->items[modelIdx]);
 
         //projection
         mat4x4 PMatrix;
         float aspRatio = ((float)vkRuntimeInfoP->swapChainImageExtent.width) / vkRuntimeInfoP->swapChainImageExtent.height;
-        mat4x4_perspective_vk(PMatrix, 1.6f, aspRatio, 0.1f, 10.0f);
+        mat4x4_perspective_vk(PMatrix, 1.2f, aspRatio, 0.1f, 100.0f);
         mat4x4_mul(MVPMatrix, PMatrix, MVPMatrix);
 
         //copy in buffer
@@ -1620,6 +1647,49 @@ void eng_createDepthBuffers(struct VulkanRuntimeInfo* vkRuntimeInfoP){
     vkRuntimeInfoP->depthBufferFormat=depthBufferFormat;
 }
 
+void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset){
+    #define scrollSpeed 1.0
+    radiusObserver-=yoffset*scrollSpeed;
+    radiusObserver=clamp_float(1.0f,radiusObserver,40.0f);
+}
+
+void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods){
+    if(key==GLFW_KEY_W && action==GLFW_PRESS){
+        rotateUpDown=1;
+    }
+    if(key==GLFW_KEY_W && action==GLFW_RELEASE){
+        if(rotateUpDown==1){
+            rotateUpDown=0;
+        }
+    }
+    if(key==GLFW_KEY_S && action==GLFW_PRESS){
+        rotateUpDown=-1;
+    }
+    if(key==GLFW_KEY_S && action==GLFW_RELEASE){
+        if(rotateUpDown==-1){
+            rotateUpDown=0;
+        }
+    }
+    if(key==GLFW_KEY_A && action==GLFW_PRESS){
+        rotateLeftRight=1;
+    }
+    if(key==GLFW_KEY_A && action==GLFW_RELEASE){
+        if(rotateLeftRight==1){
+            rotateLeftRight=0;
+        }
+    }
+    if(key==GLFW_KEY_D && action==GLFW_PRESS){
+        rotateLeftRight=-1;
+    }
+    if(key==GLFW_KEY_D && action==GLFW_RELEASE){
+        if(rotateLeftRight==-1){
+            rotateLeftRight=0;
+        }
+    }
+}
+
+
+
 int main(int argc, char** argv) {
     (void)argc; //avoid unused arguments warning
     (void)argv;
@@ -1657,11 +1727,22 @@ int main(int argc, char** argv) {
     eng_createRenderPass(&engVkRuntimeInfo);                                //depends on eng_createSwapChain and eng_createDepthBuffers
 
     eng_createCommandPool(&engVkRuntimeInfo);                               //depends on eng_createDevice
-    Dl_modelPathAndName* modelPathAndNameDlP = Dl_modelPathAndName_alloc(2, NULL);
-    modelPathAndNameDlP->items[0].pathString = Dl_utf32Char_fromString("./res/earth.dae");
-    modelPathAndNameDlP->items[0].modelName  = Dl_utf32Char_fromString("Earth_Diffuse_6K-mesh");
-    modelPathAndNameDlP->items[1].pathString = Dl_utf32Char_fromString("./res/mars.dae");
-    modelPathAndNameDlP->items[1].modelName  = Dl_utf32Char_fromString("Mars_Diffuse_6K-mesh");
+    Dl_DlP_utf32Char* modelNamesStringDlP;
+    solSys_initAndGetPlanetNames(&modelNamesStringDlP);
+    Dl_modelPathAndName* modelPathAndNameDlP= Dl_modelPathAndName_alloc(modelNamesStringDlP->itemcnt, NULL);
+    Dl_utf32Char* resPathStartString=Dl_utf32Char_fromString("./res/");
+    Dl_utf32Char* resPathEndString=Dl_utf32Char_fromString(".dae");
+    Dl_utf32Char* meshEndString=Dl_utf32Char_fromString("-mesh");
+    for(size_t planetNameIdx = 0; planetNameIdx < modelNamesStringDlP->itemcnt; planetNameIdx++){
+        dprintf(DBGT_INFO,"Loading Planet:");
+        Dl_utf32Char_print(modelNamesStringDlP->items[planetNameIdx]);
+        modelPathAndNameDlP->items[planetNameIdx].modelName  = Dl_utf32Char_mergeDulplicate(modelNamesStringDlP->items[planetNameIdx], meshEndString);
+        modelPathAndNameDlP->items[planetNameIdx].pathString = Dl_utf32Char_mergeDulplicate(resPathStartString, modelNamesStringDlP->items[planetNameIdx]);
+        modelPathAndNameDlP->items[planetNameIdx].pathString = Dl_utf32Char_mergeDulplicate(modelPathAndNameDlP->items[planetNameIdx].pathString, resPathEndString);
+    }
+    Dl_utf32Char_delete(resPathStartString);
+    Dl_utf32Char_delete(resPathEndString);
+    Dl_utf32Char_delete(meshEndString);
 
     eng_load_static_models(&engVkRuntimeInfo, modelPathAndNameDlP);         //depends on eng_createCommandPool and creates vertex buffer
     eng_createDescriptorPoolAndSets(&engVkRuntimeInfo);                     //depends on eng_createSwapChain and eng_load_static_models
@@ -1671,8 +1752,13 @@ int main(int argc, char** argv) {
     eng_createRenderCommandBuffers(&engVkRuntimeInfo);                      //depends on eng_createCommandPool and eng_createFramebuffers and eng_load_static_models and createPipeline
     eng_createSynchronizationPrimitives(&engVkRuntimeInfo);
     dprintf(DBGT_INFO, "Got here");
+    Dl_MAT4* StorageForModelMatricesDlP=Dl_MAT4_alloc(modelNamesStringDlP->itemcnt, NULL);
+    Dl_DlP_utf32Char_delete(modelNamesStringDlP);
+    glfwSetKeyCallback(engVkRuntimeInfo.mainWindowP,KeyCallback);
+    glfwSetScrollCallback(engVkRuntimeInfo.mainWindowP,ScrollCallback);
     while (!glfwWindowShouldClose(engVkRuntimeInfo.mainWindowP)) {
-        eng_draw(&engVkRuntimeInfo);
+        eng_draw(&engVkRuntimeInfo, StorageForModelMatricesDlP);
         glfwPollEvents();
     }
+
 }

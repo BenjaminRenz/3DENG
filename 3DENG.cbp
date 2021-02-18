@@ -54,6 +54,7 @@
 		</Unit>
 		<Unit filename="res/kegel_ohne_camera.dae" />
 		<Unit filename="res/shader1.xml" />
+		<Unit filename="res/solSysInit.xml" />
 		<Unit filename="res/untitled.dae" />
 		<Unit filename="res/vk_setup.xml" />
 		<Unit filename="submodules/bmpLoader/bmpLoader.c">
@@ -72,6 +73,10 @@
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="submodules/mathHelper/mathHelper.h" />
+		<Unit filename="submodules/solSysSim/solSysSim.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="submodules/solSysSim/solSysSim.h" />
 		<Unit filename="submodules/vkEngine/core.c">
 			<Option compilerVar="CC" />
 		</Unit>

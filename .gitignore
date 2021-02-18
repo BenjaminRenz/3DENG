@@ -1,3 +1,7 @@
 
 *.o
 *.exe
+*.bmp
+*.bmp
+*.bmp
+res/mars_diffuse.bmp
